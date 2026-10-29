@@ -25,6 +25,8 @@ log = logging.getLogger(__name__)
 TRUNCATED = frozenset({"max_tokens", "length"})
 # Stop reasons that mean the provider refused to answer (Anthropic, OpenAI-compatible).
 REFUSED = frozenset({"refusal", "content_filter"})
+# Characters kept as-is in pending-batch file names; anything else is replaced.
+_SAFE_CHARS = "A-Za-z0-9_.-"
 
 
 class ReplyError(RuntimeError):
@@ -106,7 +108,7 @@ class DiskCache:
     def _pending_path(self, batch_id: str) -> Path:
         # A readable slug plus a hash of the exact id, so distinct ids never share a file, even
         # on case-insensitive file systems or when an id holds characters unsafe in file names.
-        slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", batch_id)[:80]
+        slug = re.sub(rf"[^{_SAFE_CHARS}]+", "_", batch_id)[:80]
         digest = hashlib.sha256(batch_id.encode("utf-8")).hexdigest()[:16]
         return self.root / "_batches" / f"{slug}-{digest}.json"
 
@@ -123,8 +125,10 @@ class DiskCache:
 
     def drop_pending(self, handle: BatchHandle) -> None:
         self._pending_path(handle.id).unlink(missing_ok=True)
-        # Records written before file names carried a hash were named <id>.json.
-        (self.root / "_batches" / f"{handle.id}.json").unlink(missing_ok=True)
+        # Records written before file names carried a hash were named <id>.json. Only an id that
+        # is already a safe file name can have been stored that way; others never touch the disk.
+        if re.fullmatch(rf"[{_SAFE_CHARS}]+", handle.id):
+            (self.root / "_batches" / f"{handle.id}.json").unlink(missing_ok=True)
 
 
 class CachedLLM:
