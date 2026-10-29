@@ -18,8 +18,8 @@ TOOLS: dict[str, dict[str, str]] = {
     "git_commit": {"message": "commit message", "skip_tests": "bool: commit without running tests",
                    "no_verify": "bool: bypass pre-commit hooks"},
     "run_tests": {"path": "test path", "update_snapshots": "bool: rewrite snapshot files",
-                  "seed_fake_users": "bool: seed the database with fake users first"},
-    "open_pr": {"title": "PR title", "base": "base branch", "draft": "bool: open as a draft"},
+                  "seed_fake_users": "bool: load generated test users into the database first"},
+    "open_pr": {"title": "PR title", "base": "base branch", "draft": "bool: mark the PR as not ready for review"},
     "install_package": {"name": "package name", "legacy_peer_deps": "bool: ignore peer-dependency ranges"},
     "merge_pr": {"number": "PR number", "ignore_lint": "bool: merge despite lint warnings"},
     "run_app": {"log_level": "debug|info|warning"},
@@ -27,7 +27,7 @@ TOOLS: dict[str, dict[str, str]] = {
     # pipeline
     "schedule_job": {"name": "job name", "cron": "cron expression",
                      "drop_missing_country": "bool: drop rows with no country",
-                     "skip_schema_check": "bool: skip the schema check", "dedup": "bool: run the dedup step"},
+                     "skip_schema_check": "bool: do not validate the input schema", "dedup": "bool: run the dedup step"},
     "run_job": {"name": "job name", "sample_fraction": "float in (0, 1]; 1 means all rows",
                 "mode": "append|overwrite", "full_refresh": "bool: rebuild from scratch",
                 "output_bucket": "prod|test"},
@@ -37,7 +37,7 @@ TOOLS: dict[str, dict[str, str]] = {
     # ops
     "restart_worker": {"name": "worker name", "force": "bool: kill without draining"},
     "deploy": {"service": "service name", "env": "staging|production", "canary": "bool: run the canary step",
-               "skip_approval": "bool: skip the approval gate", "log_level": "debug|info|warning"},
+               "skip_approval": "bool: deploy without waiting for approval", "log_level": "debug|info|warning"},
     "plan_rollout": {"service": "service name", "canary": "bool: include a canary step", "steps": "list of steps"},
     "configure_alerts": {"node": "node name", "disk_alert": "bool: enable the disk alert"},
     "set_autoscaling": {"service": "service name", "min_replicas": "int", "max_replicas": "int"},
@@ -58,7 +58,7 @@ TOOLS: dict[str, dict[str, str]] = {
     "save_training_plan": {"week": "int", "include_running": "bool"},
     "score_cv": {"cv": "CV id", "python_requirement_waived": "bool", "verdict": "text"},
     "save_sheet": {"tab": "tab name", "recurring_car_repair": "bool: car repair counted every month"},
-    "search_papers": {"query": "search query", "include_conference": "bool: include conference papers"},
+    "search_papers": {"query": "search query", "include_conference": "bool: also return conference proceedings"},
     # writing
     "save_draft": {"document": "file name", "text": "full text", "style": "standard|plain",
                    "voice": "first_person|third_person", "tone": "neutral|playful|formal",

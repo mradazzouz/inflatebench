@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -20,6 +21,11 @@ from inflatebench.models.retry import retry
 from inflatebench.schema import Message
 
 OLLAMA_BASE_URL = "http://localhost:11434/v1"
+# Content parts that carry the answer; reasoning and thinking parts are dropped.
+TEXT_PARTS = ("text", "output_text")
+# A reasoning block some servers (e.g. Ollama with reasoning models) put at the start of content;
+# an unclosed block means the reply was cut off while still reasoning.
+THINK = re.compile(r"^\s*<think>.*?(?:</think>\s*|$)", re.DOTALL)
 
 # Takes (url, headers, json body) and returns the decoded JSON response.
 Transport = Callable[[str, dict[str, str], dict[str, Any]], dict[str, Any]]
@@ -29,6 +35,16 @@ class HTTPStatusError(Exception):
     def __init__(self, status_code: int, body: str) -> None:
         super().__init__(f"HTTP {status_code}: {body[:500]}")
         self.status_code = status_code
+
+
+def answer_text(message: dict[str, Any]) -> str:
+    """The final answer only: reasoning_content, reasoning and thinking fields, reasoning
+    content parts and a leading <think> block are all left out."""
+    content = message.get("content") or ""
+    if isinstance(content, list):
+        content = "".join(p.get("text") or "" for p in content
+                          if isinstance(p, dict) and p.get("type") in TEXT_PARTS)
+    return THINK.sub("", content, count=1)
 
 
 def urllib_transport(timeout: float = 600.0) -> Transport:
@@ -56,11 +72,17 @@ class OpenAICompatibleLLM:
         api_key_env: str | None = None,
         prices: Prices | None = None,
         max_tokens: int | None = None,
+        params: dict[str, Any] | None = None,
         transport: Transport | None = None,
         retry_attempts: int = 6,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
-        """api_key_env names the environment variable holding the key; None sends no key (Ollama)."""
+        """api_key_env names the environment variable holding the key; None sends no key (Ollama).
+
+        `max_tokens` caps the whole completion, hidden reasoning included, so set it generously
+        for reasoning models. `params` are extra request fields sent on every call (for example
+        reasoning_effort), from the model's `params:` entry in config.yaml.
+        """
         self.model = model
         self.url = base_url.rstrip("/") + "/chat/completions"
         self.headers = {"Content-Type": "application/json"}
@@ -71,6 +93,7 @@ class OpenAICompatibleLLM:
             self.headers["Authorization"] = f"Bearer {key}"
         self.prices = prices or Prices()
         self.max_tokens = max_tokens
+        self.extra = dict(params or {})
         self.post = transport or urllib_transport()
         self.retry_attempts = retry_attempts
         self.sleep = sleep
@@ -78,20 +101,27 @@ class OpenAICompatibleLLM:
 
     def settings(self) -> dict[str, Any]:
         """Part of the cache key; the endpoint is included because it decides which weights answer."""
-        return {"provider": "openai_compatible", "model": self.model, "url": self.url, "max_tokens": self.max_tokens}
+        settings = {"provider": "openai_compatible", "model": self.model, "url": self.url, "max_tokens": self.max_tokens}
+        # Only when set, so cache entries made without extra params keep their keys.
+        return settings | ({"params": self.extra} if self.extra else {})
 
     def params(self, messages: list[Message], kw: dict[str, Any], model: str | None = None) -> dict[str, Any]:
         system, turns = to_chat(messages)
         body: dict[str, Any] = {"model": model or self.model, "messages": ([{"role": "system", "content": system}] if system else []) + turns}
         if self.max_tokens is not None:
             body["max_tokens"] = self.max_tokens
-        return body | strip_key_only(kw)
+        return body | self.extra | strip_key_only(kw)
 
     def complete(self, messages: list[Message], **kw: Any) -> Completion:
         body = self.params(messages, kw)
         data = retry(lambda: self.post(self.url, self.headers, body), attempts=self.retry_attempts, sleep=self.sleep)
         choice = data["choices"][0]
         u = data.get("usage") or {}
+        text = answer_text(choice["message"])
+        if not text.strip() and choice.get("finish_reason") == "length":
+            # Never cache an empty answer: the reasoning used up the whole token budget.
+            raise RuntimeError(f"{self.model}: no answer within max_tokens={self.max_tokens}; "
+                               "raise max_tokens for this model in config.yaml")
         cache_read = ((u.get("prompt_tokens_details") or {}).get("cached_tokens")) or 0
         tokens = {
             "input_tokens": (u.get("prompt_tokens") or 0) - cache_read,
@@ -99,7 +129,7 @@ class OpenAICompatibleLLM:
             "cache_read_tokens": cache_read,
         }
         return Completion(
-            text=choice["message"].get("content") or "",
+            text=text,
             model=data.get("model") or self.model,
             cost=self.prices.cost(self.model, **tokens),
             date=now(),

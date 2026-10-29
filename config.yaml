@@ -2,7 +2,10 @@
 # API keys are read only from environment variables: ANTHROPIC_API_KEY for anthropic,
 # and the variable named by api_key_env for openai_compatible (none needed for Ollama).
 # Optional per model: max_tokens, prompt_cache (anthropic, default true), cache_ttl (5m | 1h),
-# batch (anthropic: run ib compact and ib judge through the Message Batches API at half price).
+# batch (anthropic: run ib compact and ib judge through the Message Batches API at half price),
+# params (extra request fields sent on every call, e.g. reasoning_effort; part of the cache key).
+# For reasoning models, max_tokens caps hidden reasoning plus the answer, so set it generously;
+# a reply cut off before any answer is an error, never an empty cached summary.
 models:
   main:          # cheap hosted model, run through the Batch API
     provider: anthropic
@@ -34,6 +37,14 @@ models:
   #   name: CHANGE_ME              # the provider's model id, e.g. org/model-name
   #   base_url: https://api.together.xyz/v1
   #   api_key_env: TOGETHER_API_KEY
+  # glm:           # Z.ai GLM through its OpenAI-compatible endpoint; reasoning_content is ignored
+  #   provider: openai_compatible
+  #   name: glm-5.3-flash
+  #   base_url: https://api.z.ai/api/paas/v4
+  #   api_key_env: ZAI_API_KEY
+  #   max_tokens: 16384            # room for hidden reasoning plus the summary or JSON verdict
+  #   params:
+  #     reasoning_effort: low
 
 # Judges for ib judge: two families score every summary; the third breaks ties. Each is a
 # key under models: above, or an inline entry like {provider: anthropic, name: some-model-id}.

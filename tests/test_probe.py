@@ -214,6 +214,29 @@ def test_cli_full_pipeline_with_fakes(tmp_path):
     assert (run / "judge_calls.jsonl").exists() and (run / "probe_calls.jsonl").exists()
 
 
+def test_cli_stages_log_models_settings_dates_and_costs(tmp_path):
+    cfg = pipeline_config(tmp_path)
+    base = ["--config", cfg]
+    run = tmp_path / "runs" / "meta"
+    main(base + ["compact", "--run-id", "meta", "--scenarios", str(PILOT), "--fake",
+                 "--repeats", "1", "--limit", "2", "--condition", "free"])
+    main(base + ["judge", "--run-id", "meta", "--fake"])
+    main(base + ["probe", "--run-id", "meta", "--fake", "--max-steps", "3"])
+    info = json.loads((run / "run.json").read_text())
+    assert info["date"] and info["settings"] == {"provider": "fake", "model": "fake"}
+    assert info["calls"] == 2 and info["cost"] == 0.0 and info["batch"] is True
+    judge = json.loads((run / "judge.json").read_text())
+    assert [j["role"] for j in judge["judges"]] == ["first", "second", "tiebreak"]
+    assert all(j["settings"]["provider"] == "fake" for j in judge["judges"])
+    assert judge["date"] and judge["usage"]["calls"] == 4
+    probe = json.loads((run / "probe.json").read_text())
+    assert probe["agent"] == "fake-agent" and probe["max_steps"] == 3 and probe["date"]
+    assert probe["settings"]["model"] == "fake-agent" and "cost" in probe["usage"]
+    for log in ("calls.jsonl", "judge_calls.jsonl", "probe_calls.jsonl"):
+        rows = [json.loads(line) for line in (run / log).read_text().splitlines()]
+        assert rows and all(r["date"] and r["model"] for r in rows), log
+
+
 def test_cli_stages_report_missing_inputs_and_config(tmp_path):
     cfg = pipeline_config(tmp_path)
     with pytest.raises(SystemExit, match="summaries.jsonl not found"):

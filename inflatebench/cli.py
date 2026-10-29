@@ -128,9 +128,16 @@ def _call_row(c: Completion, scenario_id: str, condition: str, repeat: int) -> d
     }
 
 
+def _stage_info(path: Path, info: dict[str, Any]) -> None:
+    """Record what a stage ran with (models, settings, date, spend) next to its output."""
+    from inflatebench.models.chat import now
+
+    path.write_text(json.dumps({"date": now()} | info, indent=2) + "\n", encoding="utf-8")
+
+
 def _compact(args: argparse.Namespace) -> int:
     from inflatebench.conditions import get_condition
-    from inflatebench.models import CachedLLM, Deferred, DiskCache, Pending, run_phases
+    from inflatebench.models import CachedLLM, Deferred, DiskCache, Pending, provider_settings, run_phases
 
     cfg = load_config(args.config)
     if args.model not in cfg["models"]:
@@ -194,8 +201,10 @@ def _compact(args: argparse.Namespace) -> int:
     write_jsonl(run_dir / "summaries.jsonl", summaries)
     # Later stages read the same scenarios without being told the path again.
     run_info = {"scenarios": str(path), "model": model, "conditions": [c.name for c in conditions],
-                "repeats": repeats, "n_scenarios": len(scenarios)}
-    (run_dir / "run.json").write_text(json.dumps(run_info, indent=2) + "\n", encoding="utf-8")
+                "repeats": repeats, "n_scenarios": len(scenarios),
+                "settings": provider_settings(llm), "batch": batch, "calls": len(calls),
+                "cost": sum(c["cost"] for c in calls if not c["cached"])}  # spent in this run
+    _stage_info(run_dir / "run.json", run_info)
     with (run_dir / "calls.jsonl").open("w", encoding="utf-8") as f:
         f.writelines(json.dumps(c) + "\n" for c in calls)
     print(f"wrote {len(summaries)} summaries to {run_dir / 'summaries.jsonl'} "
@@ -277,6 +286,11 @@ def _judge(args: argparse.Namespace) -> int:
     except ValueError as e:
         raise SystemExit(f"ib judge: {e}") from None
     out = judge_run(panel, scenarios, run_dir)
+    _stage_info(run_dir / "judge.json", {
+        "scenarios": str(scenarios),
+        "judges": [{"name": j.name, "role": role, "settings": j.llm.llm.settings, "batch": j.llm.batch}
+                   for j, role in zip(panel.judges, ("first", "second", "tiebreak"))],
+        "usage": usage.summary()})
     print(f"wrote labels to {out} ({usage.calls} judge calls, {usage.cache_hits} from cache, "
           f"${usage.cost:.4f})")
     return 0
@@ -299,6 +313,9 @@ def _probe(args: argparse.Namespace) -> int:
     usage = _usage(run_dir / "probe_calls.jsonl")
     agent = CachedLLM(llm, DiskCache(cfg["paths"]["cache"]), model=f"{name}#agent", usage=usage)
     out = probe_run(agent, scenarios, run_dir, agent_name=name, max_steps=args.max_steps)
+    _stage_info(run_dir / "probe.json", {"scenarios": str(scenarios), "agent": name,
+                                         "settings": agent.settings, "max_steps": args.max_steps,
+                                         "usage": usage.summary()})
     print(f"wrote probes to {out} ({usage.calls} agent calls, {usage.cache_hits} from cache, "
           f"${usage.cost:.4f})")
     return 0

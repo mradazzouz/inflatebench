@@ -310,6 +310,82 @@ def test_openai_compatible_key_from_env_cost_and_retry(monkeypatch):
         OpenAICompatibleLLM("m", transport=reject, sleep=no_sleep).complete(HISTORY)
 
 
+def reasoning_reply(message, finish="stop"):
+    return {"model": "glm-5.3-flash", "choices": [{"message": message, "finish_reason": finish}],
+            "usage": {"prompt_tokens": 50, "completion_tokens": 900}}
+
+
+def test_openai_compatible_keeps_only_the_final_answer():
+    replies = [
+        {"role": "assistant", "content": "the answer", "reasoning_content": "hidden chain of thought"},
+        {"role": "assistant", "content": "the answer", "reasoning": "r", "thinking": "t"},
+        {"role": "assistant", "content": [{"type": "thinking", "thinking": "t"},
+                                          {"type": "reasoning", "text": "r"},
+                                          {"type": "text", "text": "the answer"}]},
+        {"role": "assistant", "content": "<think>\nlet me see\n</think>\n\nthe answer"},
+    ]
+    for message in replies:
+        llm = OpenAICompatibleLLM("glm-5.3-flash", transport=lambda u, h, b, m=message: reasoning_reply(m))
+        assert llm.complete(HISTORY).text == "the answer", message
+
+
+def test_openai_compatible_refuses_an_answer_cut_off_while_reasoning(tmp_path):
+    cut = [{"role": "assistant", "content": "", "reasoning_content": "still thinking"},
+           {"role": "assistant", "content": "<think>still thinking"}]
+    for message in cut:
+        llm = CachedLLM(OpenAICompatibleLLM("glm-5.3-flash", max_tokens=64,
+                                            transport=lambda u, h, b, m=message: reasoning_reply(m, "length")),
+                        DiskCache(tmp_path), model="glm")
+        with pytest.raises(RuntimeError, match="raise max_tokens"):
+            llm.complete(HISTORY)
+        assert llm.request(HISTORY) not in llm.cache  # nothing empty was cached
+
+
+def test_extra_params_from_config_are_sent_and_keyed(tmp_path, monkeypatch):
+    from inflatebench.models import make_llm
+
+    monkeypatch.setenv("ZAI_API_KEY", "zai-test")
+    entry = {"provider": "openai_compatible", "name": "glm-5.3-flash",
+             "base_url": "https://api.z.ai/api/paas/v4", "api_key_env": "ZAI_API_KEY",
+             "max_tokens": 16384, "params": {"reasoning_effort": "low"}}
+    llm = make_llm(entry)
+    sent = []
+    llm.post = lambda url, headers, body: sent.append((url, headers, body)) or reasoning_reply({"content": "ok"})
+    assert llm.complete(HISTORY, repeat=1).text == "ok"
+    url, headers, body = sent[0]
+    assert url == "https://api.z.ai/api/paas/v4/chat/completions"
+    assert headers["Authorization"] == "Bearer zai-test"
+    assert body["reasoning_effort"] == "low" and body["max_tokens"] == 16384 and "repeat" not in body
+    assert llm.settings()["params"] == {"reasoning_effort": "low"}
+
+    def cached(params):
+        return CachedLLM(OpenAICompatibleLLM("m", params=params, transport=lambda *a: ollama_reply()),
+                         DiskCache(tmp_path), model="label")
+
+    assert not cached(None).complete(HISTORY).cached
+    assert "params" not in cached(None).settings  # keys of runs without params are unchanged
+    assert not cached({"reasoning_effort": "low"}).complete(HISTORY).cached  # new setting, new answer
+    assert not cached({"reasoning_effort": "high"}).complete(HISTORY).cached
+    assert cached({"reasoning_effort": "low"}).complete(HISTORY).cached
+
+    claude = AnthropicLLM("m", client=FakeAnthropic(), params={"temperature": 0.2})
+    assert claude.params(HISTORY, {})["temperature"] == 0.2
+    assert claude.settings()["params"] == {"temperature": 0.2}
+    assert "params" not in AnthropicLLM("m", client=FakeAnthropic()).settings()
+
+
+def test_config_example_for_glm_builds_a_provider(monkeypatch):
+    from inflatebench.models import make_llm
+
+    text = open("config.yaml").read()
+    block = text.split("  # glm:", 1)[1].split("\n\n", 1)[0]
+    entry = yaml.safe_load("\n".join(line.replace("  #", "", 1) for line in block.splitlines()[1:]))
+    assert entry["name"] == "glm-5.3-flash" and entry["params"] == {"reasoning_effort": "low"}
+    monkeypatch.setenv("ZAI_API_KEY", "zai-test")
+    llm = make_llm(entry)
+    assert llm.url == "https://api.z.ai/api/paas/v4/chat/completions" and llm.max_tokens >= 8192
+
+
 def test_openai_compatible_run_batch_is_sequential_and_resumable(tmp_path):
     replies = []
 

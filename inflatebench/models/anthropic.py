@@ -45,6 +45,7 @@ class AnthropicLLM:
         prompt_cache: bool = True,
         cache_ttl: str | None = None,
         api_key_env: str = "ANTHROPIC_API_KEY",
+        params: dict[str, Any] | None = None,
         client: Any = None,
         retry_attempts: int = 6,
         sleep: Callable[[float], None] = time.sleep,
@@ -54,13 +55,16 @@ class AnthropicLLM:
         self.max_tokens = max_tokens
         self.prompt_cache = prompt_cache
         self.cache_ttl = cache_ttl
+        self.extra = dict(params or {})  # extra request fields from config.yaml, sent on every call
         self.client = client if client is not None else make_client(api_key_env)
         self.retry_attempts = retry_attempts
         self.sleep = sleep
 
     def settings(self) -> dict[str, Any]:
         """Part of the cache key. Prompt caching changes cost, not answers, so it is left out."""
-        return {"provider": "anthropic", "model": self.model, "max_tokens": self.max_tokens}
+        settings = {"provider": "anthropic", "model": self.model, "max_tokens": self.max_tokens}
+        # Only when set, so cache entries made without extra params keep their keys.
+        return settings | ({"params": self.extra} if self.extra else {})
 
     def _retry(self, fn: Callable[[], Any]) -> Any:
         return retry(fn, attempts=self.retry_attempts, sleep=self.sleep)
@@ -80,7 +84,7 @@ class AnthropicLLM:
             for m in msgs[-2:]:
                 m["content"][-1]["cache_control"] = cc
         params["messages"] = msgs
-        return params | kw
+        return params | self.extra | kw
 
     def _completion(self, msg: Any, batch: bool = False) -> Completion:
         text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")

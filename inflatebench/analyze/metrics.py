@@ -18,7 +18,8 @@ GROUP = ["condition", "model"]
 # Inflation type -> which planted items are eligible for it.
 INFLATION_TYPES = {
     "promoted": lambda t, scoped: t == "one_off",
-    "widened": lambda t, scoped: t == "one_off" or scoped,
+    # A changed value's scope field names the value it replaces, not a scope it could lose.
+    "widened": lambda t, scoped: t == "one_off" or (scoped and t != "changed_value"),
     "hardened": lambda t, scoped: t == "preference",
     "request_promoted": lambda t, scoped: t == "request",
 }

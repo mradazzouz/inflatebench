@@ -6,6 +6,7 @@ from dataclasses import replace
 from typing import Any, Callable
 
 from inflatebench.models import BatchError, BatchHandle, Completion, Request
+from inflatebench.models.chat import now
 from inflatebench.schema import Message
 
 Responder = Callable[[list[Message]], str]
@@ -38,6 +39,7 @@ class FakeLLM:
             model=self.model,
             input_tokens=sum(len(m.content.split()) for m in messages),
             output_tokens=len(text.split()),
+            date=now(),
         )
 
     def submit_batch(self, requests: list[Request]) -> BatchHandle:
