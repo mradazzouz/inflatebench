@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+import yaml
 
 from conftest import INFLATE_P, synthetic_run
 from inflatebench.analyze import analyze, analyze_run, mixed_logit, ratio_ci
@@ -300,3 +301,64 @@ def test_robustness_tables_also_exclude_off_type_labels(tmp_path, pilot):
     robust = {r["type"]: r for r in summary["robustness_unflagged"]["inflation_rates"]}
     assert robust["promoted"]["den"] == 0 and summary["robustness_unflagged"]["excluded_labels"] == 1
     assert summary["type_flags"][FINAL] == {"labels": 6, "flagged": 1, "rate": 1 / 6}
+
+
+def test_judges_agree_robustness_drops_tie_broken_items_and_invented_rules(tmp_path, pilot):
+    s = pilot[0]
+    meta = dict(scenario_id=s.id, condition="free", model="x", repeat=0)
+    final = {i.id: "correct" for i in s.items} | {"o1": "promoted"}
+    labels = labels_for(s, final)
+    for judge in ("a", "b"):
+        # The main judges disagree on o1 only; the tie-break judge c decides it.
+        labels += [Label(judge=judge, item_id=i, label=l, **meta)
+                   for i, l in (final | ({"o1": "correct"} if judge == "b" else {})).items()]
+    labels.append(Label(judge="c", item_id="o1", label="promoted", **meta))
+    # Both main judges list the first invented rule; only a and the tie-break list the second.
+    both, one = "Always run the tests first.", "Never open draft pull requests."
+    for judge, quotes in (("a", [both, one]), ("b", [both + " Every time."]), ("c", [one]), (FINAL, [both, one])):
+        labels += [Label(judge=judge, item_id=None, label=INVENTED, quote=q, **meta) for q in quotes]
+
+    summary = analyze(labels, pilot, None, tmp_path / "rep", n_boot=10, figures=False,
+                      judge_roles={"a": "first", "b": "second", "c": "tiebreak"})
+    main = {r["type"]: r for r in summary["inflation_rates"]}
+    agree = summary["robustness_judges_agree"]
+    robust = {r["type"]: r for r in agree["inflation_rates"]}
+    assert main["promoted"]["rate"] == 1.0 and robust["promoted"]["den"] == 0
+    assert agree["main_judges"] == ["a", "b"]
+    assert (agree["excluded_items"], agree["excluded_invented"]) == (1, 1)
+    assert agree["n_items"] == summary["n_items"] - 1
+    # Precision: the promoted one-off and the invented rule only one judge listed leave the
+    # rules listed.
+    main_pr, agree_pr = summary["precision_recall"][0], agree["precision_recall"][0]
+    assert agree_pr["rules_listed"] == main_pr["rules_listed"] - 2
+    for name in ("inflation_rates_judges_agree.csv", "precision_recall_judges_agree.csv"):
+        assert (tmp_path / "rep" / name).exists()
+    # Without judge.json roles the main judges are the two that labelled every item.
+    assert m.main_judges(labels) == ("a", "b")
+    assert m.main_judges(labels, {"b": "first", "a": "second"}) == ("b", "a")
+
+
+def test_judges_agree_robustness_needs_two_main_judges(tmp_path, pilot):
+    labels = labels_for(pilot[0], {i.id: "correct" for i in pilot[0].items})
+    summary = analyze(labels, pilot, None, tmp_path / "rep", n_boot=10, figures=False)
+    assert summary["robustness_judges_agree"]["note"].startswith("skipped")
+    assert not (tmp_path / "rep" / "inflation_rates_judges_agree.csv").exists()
+
+
+def test_analyze_run_reads_judge_roles_from_judge_json(tmp_path):
+    from inflatebench.cli import main
+
+    cfg = yaml.safe_load(open("config.yaml"))
+    cfg["paths"].update(runs=str(tmp_path / "runs"), cache=str(tmp_path / "cache"))
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump(cfg))
+    base = ["--config", str(path)]
+    pilot_path = str(Path(__file__).parent.parent / "data" / "pilot.jsonl")
+    main(base + ["compact", "--run-id", "r", "--scenarios", pilot_path, "--fake", "--repeats", "1",
+                 "--limit", "2", "--condition", "free"])
+    main(base + ["judge", "--run-id", "r", "--fake"])
+    assert main(base + ["analyze", "--run-id", "r", "--n-boot", "10", "--no-figures"]) == 0
+    roles = {j["role"]: j["name"] for j in json.loads((tmp_path / "runs/r/judge.json").read_text())["judges"]}
+    summary = json.loads((tmp_path / "runs/r/report/summary.json").read_text())
+    assert summary["robustness_judges_agree"]["main_judges"] == [roles["first"], roles["second"]]
+    assert (tmp_path / "runs/r/report/inflation_rates_judges_agree.csv").exists()
