@@ -281,3 +281,68 @@ def test_annotation_sample_is_blind_and_round_trips(tmp_path, pilot, summaries):
     assert check["human_vs_judge"]["human:ben"]["agreement"] == pytest.approx(7 / 8)
     assert check["humans"]["human:ana vs human:ben"]["n"] == 8
     assert check["passes"] == (check["human_vs_judge"]["human:ben"]["kappa"] >= 0.7)
+
+
+def test_off_type_labels_are_reasked_once_then_flagged(pilot):
+    from inflatebench.judge import ALLOWED_LABELS
+
+    s = pilot[2]
+    types = {i.id: i.type for i in s.items}
+    assert "hardened" not in ALLOWED_LABELS[types["o1"]] and "promoted" not in ALLOWED_LABELS[types["r1"]]
+    off = GOOD | {"o1": ("hardened", GOOD["o1"][1]), "r1": ("promoted", GOOD["r1"][1])}
+
+    fixed = FakeLLM([reply(off), reply(GOOD)])
+    labels = LLMJudge("j1", fixed).label(s, GOOD_TEXT)
+    assert len(fixed.calls) == 2
+    reask = fixed.calls[1][-1].content
+    assert "not allowed for the item's type" in reask and "o1 (one_off) is 'hardened'" in reask
+    assert "allowed: correct, promoted, widened" in reask
+    assert not any(l.type_flagged for l in labels)
+
+    stubborn = FakeLLM([reply(off)])
+    labels = LLMJudge("j1", stubborn).label(s, GOOD_TEXT)
+    assert len(stubborn.calls) == 2  # one re-ask, then the label is kept and flagged
+    flagged = {l.item_id: l.label for l in labels if l.type_flagged}
+    assert flagged == {"o1": "hardened", "r1": "promoted"}
+    assert not any(l.quote_flagged for l in labels)
+
+
+def test_one_reask_covers_quotes_and_types_together(pilot):
+    both = GOOD | {"o1": ("hardened", "Made-up quote.")}
+    llm = FakeLLM([reply(both)])
+    labels = LLMJudge("j1", llm).label(pilot[2], GOOD_TEXT)
+    assert len(llm.calls) == 2
+    reask = llm.calls[1][-1].content
+    assert "not in the summary" in reask and "not allowed" in reask
+    o1 = next(l for l in labels if l.item_id == "o1")
+    assert o1.quote_flagged and o1.type_flagged
+
+
+def test_panel_final_labels_keep_type_flags(pilot):
+    off = GOOD | {"o1": ("hardened", GOOD["o1"][1])}
+    panel = PanelJudge(LLMJudge("a", FakeLLM([reply(off)])), LLMJudge("b", FakeLLM([reply(GOOD)])),
+                       LLMJudge("c", FakeLLM([reply(off)])))
+    final = {l.item_id: l for l in panel.label(pilot[2], GOOD_TEXT) if l.judge == FINAL}
+    assert final["o1"].label == "hardened" and final["o1"].type_flagged
+
+
+def test_rubric_lists_allowed_labels_precedence_and_hides_turns(pilot):
+    from inflatebench.judge import ALLOWED_LABELS, PRECEDENCE
+
+    s = pilot[2]
+    system, user = build_prompt(s, "SUMMARY")
+    for item_type, allowed in ALLOWED_LABELS.items():
+        assert f"- {item_type}: {', '.join(allowed)}" in system.content
+    assert " > ".join(PRECEDENCE) in system.content
+    assert "never listed as invented" in system.content
+    rows = [json.loads(line) for line in user.content.split("\n\n")[0].splitlines()[1:]]
+    for row in rows:
+        assert row["allowed_labels"] == list(ALLOWED_LABELS[row["type"]])
+        assert "(turn" not in row.get("scope", "")
+    from inflatebench.generate import build_scenario
+
+    gen = build_scenario("ops", 0)
+    o1 = next(i for i in gen.items if i.type == "one_off")
+    assert o1.scope.endswith(f"(turn {o1.turn})")  # the scenario keeps it; the judge does not see it
+    shown = build_prompt(gen, "SUMMARY")[1].content
+    assert o1.scope.rsplit(" (turn", 1)[0] in shown and f"(turn {o1.turn})" not in shown

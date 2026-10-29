@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from inflatebench.judge import LABEL_DEFINITIONS, make_annotation_sample, read_human_labels
+from inflatebench.judge import ALLOWED_LABELS, LABEL_DEFINITIONS, make_annotation_sample, read_human_labels
+from inflatebench.schema import LABELS
 from inflatebench.judge.run import read_rows, write_rows
 
 ROOT = Path(__file__).parent.parent
@@ -19,6 +20,8 @@ def test_page_is_offline_and_matches_rubric():
     assert not re.search(r"""(src|href)=["']?(https?:)?//""", html)
     for name, definition in LABEL_DEFINITIONS.items():
         assert f'["{name}", "{definition}"]' in html
+    for item_type, allowed in ALLOWED_LABELS.items():
+        assert f"  {item_type}: {json.dumps(list(allowed))}," in html
 
 
 def _node_playwright() -> bool:
@@ -33,20 +36,25 @@ def test_page_labels_and_saves_jsonl(tmp_path, pilot, summaries):
     write_rows(tmp_path / "sample.jsonl", sample)
     write_rows(tmp_path / "key.jsonl", key)
     out = tmp_path / "saved.jsonl"
+    # The last label each item's type allows, and one label the second item's type does not.
+    first, second = (ALLOWED_LABELS[r["item_type"]][-1] for r in sample[:2])
+    disallowed = next(l for l in LABELS if l not in ALLOWED_LABELS[sample[1]["item_type"]])
     run = subprocess.run(["node", str(Path(__file__).parent / "annotation_e2e.js"), str(PAGE),
-                          str(tmp_path / "sample.jsonl"), str(out)],
+                          str(tmp_path / "sample.jsonl"), str(out), first,
+                          str(LABELS.index(second) + 1), disallowed],
                          capture_output=True, text=True, timeout=120)
     assert run.returncode == 0, run.stderr
     result = json.loads(run.stdout.strip().splitlines()[-1])
     assert result["errors"] == []
     assert result["first"] == f"“{sample[0]['item_text']}”"
     assert result["pressed"] == "true"
+    assert result["disabled"] and "does not apply" in result["refused"]
     assert result["progress"].endswith("2 labelled")
     assert result["filename"] == "sample.labels.ana.jsonl"
 
     rows = read_rows(out)
     assert [(r["uid"], r["label"], r["annotator"]) for r in rows] == [
-        (sample[0]["uid"], "promoted", "ana"), (sample[1]["uid"], "hardened", "ana")]
+        (sample[0]["uid"], first, "ana"), (sample[1]["uid"], second, "ana")]
     assert rows[1]["quote"] == "Disable the canary step"
     labels = read_human_labels(out, tmp_path / "key.jsonl")
     assert [l.judge for l in labels] == ["human:ana", "human:ana"]

@@ -6,7 +6,7 @@ import json
 import random
 from typing import TYPE_CHECKING
 
-from inflatebench.generate.banks import EXPLICIT_MARKERS, IMPLICIT_FORBIDS_MARKERS, count_key, cue_ok
+from inflatebench.generate.banks import EXPLICIT_MARKERS, IMPLICIT_FORBIDS_MARKERS, SCOPE_WORDS, count_key, cue_ok
 from inflatebench.schema import Message
 
 if TYPE_CHECKING:
@@ -43,7 +43,8 @@ CUE_RULES = {
 def build_prompt(text: str, key: str, item_type: str, cue: str, n: int = N_VARIANTS) -> str:
     rule = ""
     if cue == "explicit" or item_type in IMPLICIT_FORBIDS_MARKERS:
-        markers = ", ".join(f'"{m}"' for m in EXPLICIT_MARKERS[item_type])
+        words = SCOPE_WORDS if (item_type, cue) == ("one_off", "implicit") else EXPLICIT_MARKERS[item_type]
+        markers = ", ".join(f'"{m}"' for m in words)
         rule = "- " + CUE_RULES[cue].format(markers=markers)
     return PROMPT.format(n=n, role=ROLE[item_type], key=key, cue_rule=rule, text=text)
 

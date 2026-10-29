@@ -10,11 +10,13 @@ from inflatebench.judge.rubric import build_prompt
 from inflatebench.models import FakeLLM
 from inflatebench.probe import (
     DOMAIN_TOOLS,
+    FULL,
     call_inflated,
     call_tool,
     inflated,
     matches,
     parse_calls,
+    probe_full,
     probe_run,
     probe_summary,
     resolve,
@@ -66,6 +68,13 @@ def agent(*replies: str) -> FakeLLM:
 def test_domain_tools_cover_every_mock_tool_once():
     listed = [t for names in DOMAIN_TOOLS.values() for t in names]
     assert sorted(listed) == sorted(TOOLS)
+
+
+def test_every_generated_probe_tool_belongs_to_its_domain():
+    from inflatebench.generate import generate
+
+    for s in generate(240, 0):
+        assert s.probe.tool in DOMAIN_TOOLS[s.domain], s.id
 
 
 def test_every_pilot_probe_tool_is_offered(pilot_all):
@@ -172,7 +181,26 @@ def test_probe_run_writes_one_result_per_summary(tmp_path, pilot_all):
                  for c in ("free", "pinning")])
     out = probe_run(FakeLLM(_fake_agent_responder), tmp_path / "s.jsonl", run)
     results = list(read_jsonl(out, ProbeResult))
-    assert len(results) == 4 and all(r.probe_called and not r.inflated for r in results)
+    # One per summary, plus one full-history baseline per scenario, model and repeat.
+    assert len(results) == 4 + 2 and all(r.probe_called and not r.inflated for r in results)
+    assert sorted((r.scenario_id, r.condition) for r in results if r.condition == FULL) == [
+        (s.id, FULL) for s in pilot_all[:2]]
+    out = probe_run(FakeLLM(_fake_agent_responder), tmp_path / "s.jsonl", run, full=False)
+    assert len(list(read_jsonl(out, ProbeResult))) == 4
+
+
+def test_full_history_baseline_shows_the_agent_the_whole_history(pilot_all):
+    scen = next(s for s in pilot_all if s.id == "pilot-B")
+    llm = agent('{"tool": "restart_worker", "args": {"name": "w1", "force": true}}', "Restarted.")
+    res = probe_full(llm, scen, "m", 1, agent_name="a")
+    sent = llm.calls[0]
+    assert sent[1:-1] == scen.history and sent[-1] == Message("user", scen.next_task)
+    assert (res.condition, res.model, res.repeat, res.agent) == (FULL, "m", 1, "a") and res.inflated
+    # Same system prompt as for a compacted context: only the context differs.
+    other = agent("Done.")
+    probe_summary(other, scen, Summary(scen.id, "free", "m", 1, [Message("system", "x")]))
+    assert other.calls[0][0] == sent[0]
+    assert "either in full or compacted" in sent[0].content
 
 
 # --- fakes and CLI --------------------------------------------------------------------------
@@ -208,9 +236,13 @@ def test_cli_full_pipeline_with_fakes(tmp_path):
     assert main(base + ["probe", "--run-id", "e2e", "--fake"]) == 0
     assert main(base + ["analyze", "--run-id", "e2e", "--n-boot", "50", "--no-figures"]) == 0
     probes = list(read_jsonl(run / "probes.jsonl", ProbeResult))
-    assert len(probes) == 25 and all(p.probe_called for p in probes)
+    n_cond = len(yaml.safe_load(open("config.yaml"))["conditions"])
+    assert len(probes) == 5 * n_cond + 5 and all(p.probe_called for p in probes)
     summary = json.loads((run / "report/summary.json").read_text())
     assert summary["n_scenarios"] == 5 and "behaviour" in summary
+    beh = {r["condition"]: r for r in summary["behaviour"]}
+    assert "full" in beh and all(r["induced"] == r["rate"] - beh["full"]["rate"]
+                                 for c, r in beh.items() if c != "full")
     assert (run / "judge_calls.jsonl").exists() and (run / "probe_calls.jsonl").exists()
 
 
@@ -231,6 +263,7 @@ def test_cli_stages_log_models_settings_dates_and_costs(tmp_path):
     assert judge["date"] and judge["usage"]["calls"] == 4
     # The fake judge quotes only text it finds in the summary, so nothing is flagged.
     assert judge["quote_flags"]["final"] == {"quoted": 0, "flagged": 0, "rate": 0.0}
+    assert judge["type_flags"]["final"] == {"labels": 2 * 6, "flagged": 0, "rate": 0.0}
     probe = json.loads((run / "probe.json").read_text())
     assert probe["agent"] == "fake-agent" and probe["max_steps"] == 3 and probe["date"]
     assert probe["settings"]["model"] == "fake-agent" and "cost" in probe["usage"]

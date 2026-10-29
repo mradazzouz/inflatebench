@@ -1,4 +1,5 @@
-"""Single-call conditions: free summary, sectioned template, keep-rules prompt."""
+"""Single-call conditions: free summary, sectioned template, keep-rules prompt, and the two
+ablations that separate the sectioned template's Constraints section from its word limit."""
 
 from __future__ import annotations
 
@@ -45,3 +46,17 @@ class KeepRules(PromptCondition):
 
     name = "keep_rules"
     prompts = ("sectioned", "keep_rules")
+
+
+class FreeLimited(PromptCondition):
+    """Ablation: the free summary with the sectioned template's 250-word limit."""
+
+    name = "free_limited"
+    prompts = ("free_limited",)
+
+
+class SectionedNoConstraints(PromptCondition):
+    """Ablation: the sectioned template without its Constraints & Preferences section."""
+
+    name = "sectioned_noconstraints"
+    prompts = ("sectioned_noconstraints",)

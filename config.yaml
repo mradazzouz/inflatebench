@@ -61,7 +61,9 @@ agent: main      # model key that acts on each summary in ib probe (override wit
 #   some-model-id: {input: 1.00, output: 5.00, cache_read: 0.10}
 prices: {}
 
-conditions: [free, sectioned, keep_rules, extractor, pinning]
+# free_limited and sectioned_noconstraints are ablations: the free summary with the sectioned
+# template's 250-word limit, and the sectioned template without its Constraints section.
+conditions: [free, sectioned, keep_rules, extractor, pinning, free_limited, sectioned_noconstraints]
 repeats: 3
 
 paths:

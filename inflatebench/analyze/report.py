@@ -11,9 +11,9 @@ import pandas as pd
 
 from inflatebench.analyze import metrics as m
 from inflatebench.analyze import plots
-from inflatebench.analyze.stats import mixed_logit, ratio_ci
+from inflatebench.analyze.stats import diff_ci, mixed_logit, ratio_ci
 from inflatebench.judge.judges import FINAL
-from inflatebench.judge.run import quote_flag_rates
+from inflatebench.judge.run import quote_flag_rates, type_flag_rates
 from inflatebench.schema import Label, ProbeResult, Scenario, Summary, read_jsonl
 
 
@@ -42,14 +42,27 @@ def precision_recall(items: pd.DataFrame, invented: pd.DataFrame, n_boot: int = 
 
 def behaviour_rates(probes: pd.DataFrame, n_boot: int = 2000, seed: int = 0) -> pd.DataFrame:
     """Behavioural inflation over all probes (rate, lo, hi), how often the probe tool was called
-    (called_rate) and behavioural inflation among probes that called it (rate_when_called)."""
+    (called_rate) and behavioural inflation among probes that called it (rate_when_called).
+
+    With the full-history baseline in the probes (condition "full"), each compacted condition
+    also gets `induced` (its rate minus the full-history rate for the same model, with a paired
+    bootstrap interval): the behavioural inflation that compaction causes. The same difference
+    is given for rate_when_called (`induced_when_called`).
+    """
+    from inflatebench.probe.run import FULL
+
     out = ratio_ci(m.behaviour_counts(probes), m.GROUP, n_boot, seed)
     for counts, name in ((m.called_counts, "called"), (m.behaviour_when_called_counts, "when_called")):
         t = ratio_ci(counts(probes), m.GROUP, n_boot, seed)
         prefix = "called_rate" if name == "called" else "rate_when_called"
         t = t.rename(columns={"rate": prefix, "lo": f"{prefix}_lo", "hi": f"{prefix}_hi",
                               "num": f"{prefix}_num", "den": f"{prefix}_den"})
-        out = out.merge(t.drop(columns="scenarios"), on=m.GROUP, how="left")
+        out = out.merge(t.drop(columns=["scenarios", "clusters"]), on=m.GROUP, how="left")
+    for counts, prefix in ((m.behaviour_counts, "induced"), (m.behaviour_when_called_counts,
+                                                             "induced_when_called")):
+        d = diff_ci(counts(probes), FULL, n_boot=n_boot, seed=seed)
+        d = d.rename(columns={"diff": prefix, "diff_lo": f"{prefix}_lo", "diff_hi": f"{prefix}_hi"})
+        out = out.merge(d, on=m.GROUP, how="left")
     return out
 
 
@@ -94,12 +107,14 @@ def analyze(labels: Iterable[Label], scenarios: Iterable[Scenario],
     items.to_csv(out / "items.csv", index=False)
     summary: dict[str, Any] = {"judge": judge, "n_items": len(items),
                                "quote_flags": quote_flag_rates(labels),
+                               "type_flags": type_flag_rates(labels),
                                "n_scenarios": int(items["scenario_id"].nunique()),
                                "n_boot": n_boot, "seed": seed,
                                "inflation_rates": _records(rates),
                                "precision_recall": _records(pr)}
-    # Robustness check: the same tables without labels whose quote stayed unverified.
-    kept = [lab for lab in labels if not (lab.judge == judge and lab.quote_flagged)]
+    # Robustness check: the same tables without flagged labels (a quote that stayed unverified,
+    # or a label the item's type does not allow).
+    kept = [lab for lab in labels if not (lab.judge == judge and (lab.quote_flagged or lab.type_flagged))]
     items_kept = m.item_frame(kept, scenarios, judge)
     rates_kept = inflation_rates(items_kept, n_boot, seed)
     pr_kept = precision_recall(items_kept, m.invented_frame(kept, judge), n_boot, seed)
@@ -168,8 +183,13 @@ def check_coverage(summaries: Iterable[Summary], scenarios: Iterable[Scenario],
 
     errors = problems(got, want, f"{judge!r} labels")
     if probes is not None:
-        errors += problems([(p.scenario_id, p.condition, p.model, p.repeat) for p in probes],
-                           set(keys), "probes")
+        from inflatebench.probe.run import FULL
+
+        found = [(p.scenario_id, p.condition, p.model, p.repeat) for p in probes]
+        expected = set(keys)
+        if any(k[1] == FULL for k in found):  # the full-history baseline, unless --no-full
+            expected |= {(sid, FULL, model, repeat) for sid, _, model, repeat in keys}
+        errors += problems(found, expected, "probes")
     if errors:
         raise ValueError("labels or probes do not match summaries.jsonl (rerun ib judge or "
                          "ib probe): " + "; ".join(errors))

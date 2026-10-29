@@ -15,15 +15,16 @@ from inflatebench.schema import Scenario
 # The groups in generate/tools.py.
 DOMAIN_TOOLS: dict[str, tuple[str, ...]] = {
     "coding": ("git_commit", "run_tests", "open_pr", "install_package", "merge_pr", "run_app",
-               "delete_files"),
+               "delete_files", "run_linters", "build_image"),
     "pipeline": ("schedule_job", "run_job", "make_chart", "apply_changes"),
     "ops": ("restart_worker", "deploy", "plan_rollout", "configure_alerts", "set_autoscaling",
-            "run_migration", "deploy_cdn", "set_automation"),
-    "office": ("send_email", "reply_ticket", "book_flight", "share_file", "respond_to_invite",
+            "run_migration", "deploy_cdn", "set_automation", "update_firewall", "rotate_credentials",
+            "post_message"),
+    "office": ("send_email", "reply_ticket", "book_flight", "book_hotel", "share_file", "respond_to_invite",
                "set_out_of_office", "create_event", "save_itinerary", "save_meal_plan",
                "save_training_plan", "score_cv", "save_sheet", "search_papers"),
     "writing": ("save_draft", "submit_piece", "publish_post", "save_quiz", "save_contract",
-                "save_translation", "save_screen"),
+                "save_translation", "save_screen", "send_newsletter"),
 }
 
 # What a mock tool reports back; tools not listed report "done".

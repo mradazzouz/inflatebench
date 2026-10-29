@@ -6,8 +6,8 @@ import json
 from typing import Any
 
 from inflatebench.conditions import neutral_context
-from inflatebench.judge.parse import JudgeError, Verdict, parse_verdict, same_rule, unquoted
-from inflatebench.judge.rubric import build_prompt
+from inflatebench.judge.parse import JudgeError, Verdict, disallowed, parse_verdict, same_rule, unquoted
+from inflatebench.judge.rubric import ALLOWED_LABELS, build_prompt
 from inflatebench.models import LLM
 from inflatebench.schema import INVENTED, Label, Message, Scenario, Summary
 
@@ -26,7 +26,8 @@ def verdict_labels(verdict: Verdict, scenario: Scenario, judge: str,
                    meta: dict[str, Any]) -> list[Label]:
     labels = [Label(scenario_id=scenario.id, judge=judge, item_id=item.id,
                     label=verdict.items[item.id][0], quote=verdict.items[item.id][1],
-                    quote_flagged=item.id in verdict.flagged_items, **meta)
+                    quote_flagged=item.id in verdict.flagged_items,
+                    type_flagged=item.id in verdict.flagged_types, **meta)
               for item in scenario.items]
     labels += [Label(scenario_id=scenario.id, judge=judge, item_id=None, label=INVENTED,
                      quote=q, quote_flagged=q in verdict.flagged_invented, **meta)
@@ -44,8 +45,9 @@ class LLMJudge:
         self.params = params
 
     def verdict(self, scenario: Scenario, summary: str) -> Verdict:
-        """Parse the judge's reply, retrying malformed ones. Quotes missing from the summary
-        get one re-ask; any still missing after it are flagged on the verdict."""
+        """Parse the judge's reply, retrying malformed ones. Quotes missing from the summary,
+        and labels the item's type does not allow, get one re-ask together; any still wrong
+        after it are flagged on the verdict (and kept as given)."""
         messages = build_prompt(scenario, summary)
         error: JudgeError | None = None
         failures, reasked = 0, False
@@ -63,18 +65,28 @@ class LLMJudge:
                 ]
                 continue
             items, invented = unquoted(verdict, summary)
-            if (items or invented) and not reasked:
+            off_type = disallowed(verdict, scenario)
+            if (items or invented or off_type) and not reasked:
                 reasked = True
-                missing = [verdict.items[i][1] for i in sorted(items)] + sorted(invented)
+                problems = []
+                if items or invented:
+                    missing = [verdict.items[i][1] for i in sorted(items)] + sorted(invented)
+                    problems.append("These quotes are not in the summary: "
+                                    + "; ".join(json.dumps(q, ensure_ascii=False) for q in missing)
+                                    + '. Copy every quote verbatim from the summary, or use "" when '
+                                    "a label rests on absence.")
+                if off_type:
+                    types = {i.id: i.type for i in scenario.items}
+                    problems.append("These labels are not allowed for the item's type: " + "; ".join(
+                        f"{i} ({types[i]}) is {verdict.items[i][0]!r}, allowed: "
+                        + ", ".join(ALLOWED_LABELS[types[i]]) for i in sorted(off_type)) + ".")
                 messages = messages + [
                     Message("assistant", reply),
-                    Message("user", "These quotes are not in the summary: "
-                            + "; ".join(json.dumps(q, ensure_ascii=False) for q in missing)
-                            + '. Copy every quote verbatim from the summary, or use "" when a label '
-                            "rests on absence. Reply again with the full JSON only."),
+                    Message("user", " ".join(problems) + " Reply again with the full JSON only."),
                 ]
                 continue
             verdict.flagged_items, verdict.flagged_invented = items, invented
+            verdict.flagged_types = off_type
             return verdict
         raise JudgeError(f"{self.name} failed on {scenario.id}: {error}")
 
@@ -120,18 +132,21 @@ class PanelJudge:
                     + [r for r in b.invented if not any(same_rule(r, q) for q in a.invented)])
 
         c = self.tiebreak.verdict(scenario, text) if disputed or open_inv else None
-        items, flagged = {}, set()
+        items, flagged, flagged_types = {}, set(), set()
         for item in scenario.items:
             source = c if item.id in disputed else a
             items[item.id] = source.items[item.id]
             if item.id in source.flagged_items:
                 flagged.add(item.id)
+            if item.id in source.flagged_types:
+                flagged_types.add(item.id)
         invented = agreed_inv
         if c is not None:
             invented = invented + [q for q in open_inv if any(same_rule(q, r) for r in c.invented)]
         final = Verdict(items=items, invented=invented, flagged_items=flagged,
                         flagged_invented={q for q in invented
-                                          if q in a.flagged_invented | b.flagged_invented})
+                                          if q in a.flagged_invented | b.flagged_invented},
+                        flagged_types=flagged_types)
 
         out = verdict_labels(a, scenario, self.first.name, meta)
         out += verdict_labels(b, scenario, self.second.name, meta)

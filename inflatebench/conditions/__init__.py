@@ -1,4 +1,5 @@
-"""Compaction conditions: free, sectioned, keep_rules, extractor, pinning."""
+"""Compaction conditions: free, sectioned, keep_rules, extractor, pinning, and the ablations
+free_limited and sectioned_noconstraints."""
 
 from __future__ import annotations
 
@@ -19,9 +20,16 @@ class Condition(Protocol):
 from inflatebench.conditions._common import NEUTRAL_HEADER, NEUTRAL_LIST_HEADER, neutral_context  # noqa: E402
 from inflatebench.conditions.extractor import Extractor  # noqa: E402
 from inflatebench.conditions.pinning import Pinning  # noqa: E402
-from inflatebench.conditions.summarize import FreeSummary, KeepRules, Sectioned  # noqa: E402
+from inflatebench.conditions.summarize import (  # noqa: E402
+    FreeLimited,
+    FreeSummary,
+    KeepRules,
+    Sectioned,
+    SectionedNoConstraints,
+)
 
-CONDITIONS: dict[str, type[Condition]] = {c.name: c for c in (FreeSummary, Sectioned, KeepRules, Extractor, Pinning)}
+CONDITIONS: dict[str, type[Condition]] = {c.name: c for c in (
+    FreeSummary, Sectioned, KeepRules, Extractor, Pinning, FreeLimited, SectionedNoConstraints)}
 
 
 def get_condition(name: str) -> Condition:
@@ -31,5 +39,6 @@ def get_condition(name: str) -> Condition:
         raise ValueError(f"unknown condition {name!r}; expected one of {list(CONDITIONS)}") from None
 
 
-__all__ = ["CONDITIONS", "NEUTRAL_HEADER", "NEUTRAL_LIST_HEADER", "Condition", "Extractor", "FreeSummary", "KeepRules", "Pinning",
-           "Sectioned", "get_condition", "neutral_context"]
+__all__ = ["CONDITIONS", "NEUTRAL_HEADER", "NEUTRAL_LIST_HEADER", "Condition", "Extractor", "FreeLimited",
+           "FreeSummary", "KeepRules", "Pinning", "Sectioned", "SectionedNoConstraints", "get_condition",
+           "neutral_context"]

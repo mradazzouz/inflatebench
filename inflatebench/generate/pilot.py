@@ -124,9 +124,10 @@ PILOT: dict[str, P] = {
 }
 
 
-# Round-2 scenarios (A-E) leave scope to context, except B ("--force this time") and E ("For this
-# run, ..."), which state it outright. C's "the only slot they have" is not a scope word.
-EXPLICIT_ROUND_2 = ("B", "E")
+# Round-2 scenarios (A-E) leave scope to context, except B ("--force this time"), C ("the only
+# slot they have") and E ("For this run, ..."). C's "only" is not about the instruction's scope,
+# but an implicit one-off may contain no scope word at all (validate), so C counts as explicit.
+EXPLICIT_ROUND_2 = ("B", "C", "E")
 
 
 def cue_for(code: str) -> str:
@@ -180,10 +181,11 @@ def port_pilot(md: str) -> list[Scenario]:
                 scope = f"{scope} (turn {turn})"
             items.append(Item(id=id_, type=type_, text=_sentence(history[turn].content, key),
                               key=key, turn=turn, scope=scope))
+        sid = f"pilot-{code.zfill(2) if code.isdigit() else code}"
         s = Scenario(
-            id=f"pilot-{code.zfill(2) if code.isdigit() else code}", domain=domain, seed=n, length="short",
-            cue=cue_for(code), items=items, history=history,
-            next_task=task, probe=Probe(tool=probe[0], inflated_if=probe[1]),
+            id=sid, domain=domain, seed=n, length="short", cue=cue_for(code), items=items,
+            history=history, next_task=task, probe=Probe(tool=probe[0], inflated_if=probe[1]),
+            template=sid,  # every pilot scenario has its own one-off, task and probe
         )
         s.position = position(s, "o1")
         scenarios.append(s)

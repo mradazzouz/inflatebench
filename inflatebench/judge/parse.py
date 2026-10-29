@@ -23,6 +23,8 @@ class Verdict:
     # Quotes not found in the summary after one re-ask: item ids, and invented quotes.
     flagged_items: set[str] = field(default_factory=set)
     flagged_invented: set[str] = field(default_factory=set)
+    # Items whose label their type does not allow, after one re-ask.
+    flagged_types: set[str] = field(default_factory=set)
 
 
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
@@ -101,3 +103,11 @@ def same_rule(a: str, b: str, threshold: float = 0.5) -> bool:
         return True
     wa, wb = set(na.split()), set(nb.split())
     return len(wa & wb) / len(wa | wb) >= threshold
+
+
+def disallowed(verdict: Verdict, scenario: Scenario) -> set[str]:
+    """Item ids whose label the item's type does not allow (rubric.ALLOWED_LABELS)."""
+    from inflatebench.judge.rubric import ALLOWED_LABELS
+
+    types = {i.id: i.type for i in scenario.items}
+    return {i for i, (label, _) in verdict.items.items() if label not in ALLOWED_LABELS[types[i]]}

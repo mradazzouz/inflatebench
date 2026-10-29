@@ -3,6 +3,10 @@
 Every entry carries an explicit and an implicit variant of the same user
 utterance. Both contain `key` exactly once; acknowledgements and tool output
 never repeat it, so the key pins the item to a single turn of the history.
+
+Only the one-off follows the scenario's cue. The other items always use one fixed
+variant (FIXED_CUE), so the explicit/implicit factor changes the one-off and nothing else;
+their other variant is kept in the bank for paraphrase experiments but never used.
 """
 
 from __future__ import annotations
@@ -25,9 +29,21 @@ EXPLICIT_MARKERS: dict[str, tuple[str, ...]] = {
     ),
     "hard_rule": ("never", "always", "must", "no exceptions", "under no circumstances"),
     "changed_value": ("from now on", "instead", "from today", "change of plans"),
-    "request": ("now, please",),
+    "request": (),
 }
 IMPLICIT_FORBIDS_MARKERS = ("one_off", "preference")
+# The variant every non-one-off item uses whatever the scenario's cue: hard rules, preferences
+# and changed values state their strength outright, requests are plain task requests.
+FIXED_CUE = {"hard_rule": "explicit", "preference": "explicit", "changed_value": "explicit",
+             "request": "implicit"}
+# Words an implicit one-off must not contain: the explicit scope markers plus temporal words,
+# so its scope comes only from the context (the occasion it names), never from a cue word.
+SCOPE_WORDS = tuple(dict.fromkeys(EXPLICIT_MARKERS["one_off"] + (
+    "today", "tonight", "tomorrow", "yesterday", "now", "right now", "currently", "at the moment",
+    "for the moment", "for now", "this time", "once", "just", "yet", "still", "temporarily",
+    "this week", "this morning", "this afternoon", "this evening", "later", "until", "while",
+    "during", "for a while", "again",
+)))
 
 
 def _has_marker(text: str, markers: tuple[str, ...]) -> bool:
@@ -35,11 +51,28 @@ def _has_marker(text: str, markers: tuple[str, ...]) -> bool:
     return any(re.search(rf"(?<![\w-]){re.escape(m)}(?![\w-])", low) for m in markers)
 
 
+def item_cue(item_type: str, cue: str) -> str:
+    """The variant an item uses in a scenario with this cue (only one-offs follow the cue)."""
+    return cue if item_type == "one_off" else FIXED_CUE[item_type]
+
+
+def scope_words(text: str) -> list[str]:
+    """The scope and temporal words (SCOPE_WORDS) in `text`."""
+    return [w for w in SCOPE_WORDS if _has_marker(text, (w,))]
+
+
 def cue_ok(text: str, item_type: str, cue: str) -> bool:
-    """Does `text` carry the scope cue its condition asks for?"""
+    """Does `text` carry the cue its item uses in a scenario with this cue?
+
+    An explicit variant must use one of its type's markers; an implicit one-off must use no
+    scope or temporal word at all, and an implicit preference no softness marker.
+    """
+    cue = item_cue(item_type, cue)
     markers = EXPLICIT_MARKERS[item_type]
     if cue == "explicit":
         return _has_marker(text, markers)
+    if item_type == "one_off":
+        return not scope_words(text)
     if item_type in IMPLICIT_FORBIDS_MARKERS:
         return not _has_marker(text, markers)
     return True
@@ -60,6 +93,7 @@ class Phrase:
     ack: str = "Understood."
     tool: str | None = None  # tool output after the acknowledgement
     scope: str | None = None
+    blocks: tuple[str, ...] = ()  # hard rules: probe tools the rule forbids or gates
 
     def text(self, cue: str) -> str:
         return self.explicit if cue == "explicit" else self.implicit
@@ -69,9 +103,8 @@ class Phrase:
 
 
 def request(key: str, text: str, tool: str, ack: str = "On it.") -> Phrase:
-    """A task request; its explicit variant frames it as a task for now."""
-    return Phrase(key=key, explicit=f"{text.rstrip('.')} now, please.", implicit=text,
-                  ack=ack, tool=tool)
+    """A task request: one plain wording, the same in every scenario."""
+    return Phrase(key=key, explicit=text, implicit=text, ack=ack, tool=tool)
 
 
 @dataclass(frozen=True)
@@ -93,9 +126,12 @@ class OneOff(Phrase):
     next_task: str = ""
     probe_tool: str = ""
     inflated_if: dict[str, Any] = field(default_factory=dict)
+    # A later (user, assistant) exchange saying the reason for the one-off has ended, for
+    # one-offs whose reason could otherwise still hold at the next task.
+    resolved: tuple[str, str] | None = None
 
     def texts(self) -> list[str]:
-        return super().texts() + [self.next_task]
+        return super().texts() + [self.next_task] + list(self.resolved or ())
 
 
 Padder = Callable[[random.Random, int], tuple[str, str]]
@@ -117,6 +153,8 @@ class Domain:
     changes: tuple[Change, ...]
     one_offs: tuple[OneOff, ...]
     padders: tuple[Padder, ...]
+    # (user, assistant) exchanges that are not instructions: questions, thanks, clarifications.
+    neutral: tuple[tuple[str, str], ...] = ()
 
     def entries(self) -> list[tuple[str, Phrase]]:
         groups = [

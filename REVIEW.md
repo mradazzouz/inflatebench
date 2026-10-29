@@ -6,30 +6,119 @@ randomly chosen generated scenarios, read the judge prompt as if I were the judg
 design, tried to make `--fake` runs pass with bad outputs, and interrupted `ib compact` and
 `ib judge` part way through.
 
-Four clear bugs are fixed in this pull request, each with a test (`tests/test_review.py` and
-one test in `tests/test_judge.py`). Test suite: 180 passed before, 196 after (`pytest`, no API
-keys). Everything else below is left for a decision by the maintainer, with a proposed fix.
+Four clear bugs were fixed in the first round, each with a test (`tests/test_review.py` and
+one test in `tests/test_judge.py`); test suite 180 passed before, 196 after. At the
+maintainer's request, a second round then fixed findings 2 to 8, 15 and parts of 12, 13 and
+16; see [Follow-up changes](#follow-up-changes) below. Test suite after the second round: 223
+passed (`pytest`, no API keys). The findings sections below describe the problems as found;
+what is still open is findings 9, 14, part of 12 and 13, and part of 16.
 
 ## Findings, ranked by how much they could change the paper's conclusions
 
 | # | Finding | Affects | Direction | Status |
 | --- | --- | --- | --- | --- |
 | 1 | The neutral judging format turned extracted and pinned constraints into more bullets of the summary's last section (usually Next Steps) | RQ3, inflation rates of extractor and pinning | Too little inflation measured for the fixes | **Fixed** |
-| 2 | The behaviour probe has no uncompacted or no-context baseline, and several probes fire on natural defaults | RQ2, every behavioural claim | Unknown; likely too much behaviour blamed on compaction | Open |
-| 3 | Every user turn in every scenario is a planted item (7 of 7 user turns, all 240 scenarios) | Absolute rates, external validity | Likely too much inflation, mostly for sectioned templates | Open |
-| 4 | 240 scenarios share 40 one-off, next-task and probe templates; intervals and regressions treat them as 240 independent units | Every interval and p-value | Intervals too narrow | Open |
-| 5 | Free versus sectioned changes three things at once: a Constraints heading, a 250-word limit and the section structure | RQ1, RQ3 ("the template causes inflation") | Cause cannot be attributed | Open |
-| 6 | Label definitions overlap (promoted vs widened, hardened vs correct, conditional one-offs), and labels that do not fit the item type are accepted and drop out of every rate | Per-type rates, kappa | Mostly too little inflation, and noise | Open |
-| 7 | The cue factor is weak and bundled: half the implicit one-offs carry occasion words, and "explicit" rewrites all six items | RQ4 | Cue effect hard to interpret | Open |
-| 8 | Seven one-offs are justified by a condition that may still hold at the next task | Promotion and behaviour on those templates | Counts defensible behaviour as inflation | Open |
+| 2 | The behaviour probe has no uncompacted or no-context baseline, and several probes fire on natural defaults | RQ2, every behavioural claim | Unknown; likely too much behaviour blamed on compaction | **Fixed** (follow-up 1) |
+| 3 | Every user turn in every scenario is a planted item (7 of 7 user turns, all 240 scenarios) | Absolute rates, external validity | Likely too much inflation, mostly for sectioned templates | **Fixed** (follow-up 2) |
+| 4 | 240 scenarios share 40 one-off, next-task and probe templates; intervals and regressions treat them as 240 independent units | Every interval and p-value | Intervals too narrow | **Fixed** (follow-up 3) |
+| 5 | Free versus sectioned changes three things at once: a Constraints heading, a 250-word limit and the section structure | RQ1, RQ3 ("the template causes inflation") | Cause cannot be attributed | **Fixed** (follow-up 4) |
+| 6 | Label definitions overlap (promoted vs widened, hardened vs correct, conditional one-offs), and labels that do not fit the item type are accepted and drop out of every rate | Per-type rates, kappa | Mostly too little inflation, and noise | **Fixed** (follow-up 5) |
+| 7 | The cue factor is weak and bundled: half the implicit one-offs carry occasion words, and "explicit" rewrites all six items | RQ4 | Cue effect hard to interpret | **Fixed** (follow-up 6) |
+| 8 | Seven one-offs are justified by a condition that may still hold at the next task | Promotion and behaviour on those templates | Counts defensible behaviour as inflation | **Fixed** (follow-up 7) |
 | 9 | The human check samples 200 items uniformly, so it is dominated by `correct`; kappa can pass the 0.7 gate while inflation labels are unreliable | Validity of every label-based result | Unknown | Open |
 | 10 | Empty replies, and replies cut off at `max_tokens`, were cached and scored | Loss (up), behaviour (down) | Depends on how often the limit is hit | **Fixed** |
 | 11 | `ib analyze` silently used labels and probes left over from an earlier compaction, a partial judge or probe run, or duplicates; `--condition X --condition X` counted X twice | Any table | Wrong numbers with no error | **Fixed** |
-| 12 | Probe outcome depends on things other than one-off inflation: hard rules that block the probe tool (15 of 240), refusals counted as not inflated, `rate_when_called` conditions on a post-treatment variable | RQ2 | Either way | Open |
-| 13 | Probe checks have false positives and negatives (substring matches, `"true"` as a string, rejected calls counted) | RQ2, a few templates | Small | Open |
+| 12 | Probe outcome depends on things other than one-off inflation: hard rules that block the probe tool (15 of 240), refusals counted as not inflated, `rate_when_called` conditions on a post-treatment variable | RQ2 | Either way | Partly fixed: blocking hard rules (follow-up 1); refusals still open |
+| 13 | Probe checks have false positives and negatives (substring matches, `"true"` as a string, rejected calls counted) | RQ2, a few templates | Small | Partly fixed: substring probes replaced by flags where possible (follow-up 1) |
 | 14 | Pinning's extractor sees only user messages, so it cannot know which requests were done; request promotion under pinning is built into the condition | RQ3 interpretation | Overstates pinning's "trade-off" if reported as model behaviour | Open (document) |
-| 15 | Domain intros, hard rules, requests and one-offs are drawn independently, so many sessions are incoherent | Naturalness | Unknown | Open |
-| 16 | Smaller issues: spend of a crashed run vanishes from the logs; a crash between batch submit and its record pays twice; AUDIT.md's "fully blind" claim is too strong | Reporting | Small | Open |
+| 15 | Domain intros, hard rules, requests and one-offs are drawn independently, so many sessions are incoherent | Naturalness | Unknown | **Fixed** (follow-up 7) |
+| 16 | Smaller issues: spend of a crashed run vanishes from the logs; a crash between batch submit and its record pays twice; AUDIT.md's "fully blind" claim is too strong | Reporting | Small | Partly fixed: the double-payment window is documented (follow-up 8) |
+
+## Follow-up changes
+
+Made at the maintainer's request after the first round, each with tests. Numbers follow the
+maintainer's list.
+
+**1. Full-history probe baseline and rewritten probes (findings 2, 12, 13).** `ib probe` now
+also runs the agent on each scenario's uncompacted history (condition `full`, `probe_full`),
+once per scenario, model and repeat, with the same task, tools and system prompt (which now
+says the earlier work follows "either in full or compacted"). `behaviour.csv` reports
+`induced` (each condition's rate minus the full-history rate for the same model) and
+`induced_when_called`, with paired bootstrap intervals (`stats.diff_ci`), and the behaviour
+regression uses `full` as its reference condition. `ib analyze`'s coverage check expects the
+baseline probes when a run has any; `--no-full` skips them. Every probe whose inflated action
+was a plausible default was rewritten: the plain-style probe now follows an API changelog for
+developers, the first-person probe became a founder-voice flag (`voice: brand|founder`), the
+dev-server debug-logging probe became an SQL-tracing flag, the 06:00 publish time was
+replaced, the discount probe follows a ticket about changing an address, and the slogan and
+embargo probes use flags instead of substrings. Hard rules carry the probe tools they would
+forbid or gate (`Phrase.blocks`, for example "Never deploy on Fridays" and `deploy`), and the
+generator never draws one for a scenario whose probe uses that tool; ops also gained a
+`post_message` tool so "post in the on-call channel first" can be followed. Tests:
+`test_full_history_baseline_shows_the_agent_the_whole_history`,
+`test_probe_run_writes_one_result_per_summary`, `test_diff_ci_is_paired_against_the_baseline`,
+`test_behaviour_reports_compaction_induced_rate_against_full_history`,
+`test_no_hard_rule_blocks_the_probe_tool`, and the end-to-end `test_cli_full_pipeline_with_fakes`.
+
+**2. Neutral user turns (finding 3).** Each domain has a bank of questions, thanks and
+clarifications with the assistant's answer (`Domain.neutral`); every history gets 3 to 6 of
+them, inserted between exchanges and never first. The validator rules all hold, and
+`validate` now also rejects any user turn without a planted item that uses a rule or scope
+marker. Tests: `test_neutral_turns_set_no_rule_and_name_no_item`,
+`test_neutral_turns_are_placed_between_exchanges`,
+`test_user_turns_are_items_old_values_neutral_turns_or_resolutions`.
+
+**3. 80 templates, clustered statistics (finding 4).** Each domain has 16 one-off templates
+(80 in all), each used three times per 240 scenarios, once at each length and position
+(`builder.factors`); every cue-position and length-cue cell holds 8 scenarios per domain.
+Scenarios store their `template` id (for example `ops-o03`; pilot scenarios are their own
+template). `ratio_ci` and `diff_ci` resample templates with all their scenarios, and the
+mixed models have random intercepts for template and scenario. The held-out set takes 8
+different templates per domain, still balanced. Tests:
+`test_templates_are_ids_of_the_one_off_and_used_three_times`,
+`test_bootstrap_resamples_templates_not_scenarios`, `test_mixed_logit_finds_condition_effect`,
+`test_heldout_set_is_balanced_reproducible_and_separate`.
+
+**4. Ablations (finding 5).** `free_limited` (the free prompt plus the sectioned template's
+250-word limit) and `sectioned_noconstraints` (the sectioned prompt without Constraints &
+Preferences, four headings, same limit) are compaction conditions and in the default
+`conditions:` list. SPEC.md describes them. Test: `test_ablations_change_one_thing_each`.
+
+**5. Label definitions and allowed labels (finding 6).** The rubric and the annotation page use
+the clearer definitions proposed in finding 6, the precedence order, the rule that a derived
+rule is never "invented", and `ALLOWED_LABELS` per item type. Each item in the judge prompt
+lists its allowed labels, and its scope no longer carries a turn number the judge cannot see.
+A label the item's type does not allow is re-asked once, together with any missing quotes;
+one still not allowed is kept and flagged (`Label.type_flagged`). Final labels keep the flag,
+`judge.json` and `summary.json` report `type_flags`, and the robustness tables leave flagged
+labels out. The annotation page disables labels the item's type does not allow. Tests:
+`test_off_type_labels_are_reasked_once_then_flagged`,
+`test_one_reask_covers_quotes_and_types_together`, `test_panel_final_labels_keep_type_flags`,
+`test_rubric_lists_allowed_labels_precedence_and_hides_turns`,
+`test_robustness_tables_also_exclude_off_type_labels`, `test_page_labels_and_saves_jsonl`.
+
+**6. Cue (finding 7).** Only the one-off follows the scenario's cue (`banks.item_cue`); hard
+rules, preferences and changed values always use their explicit wording and requests their
+plain wording (the stilted "now, please" is gone). An implicit one-off may contain none of
+`SCOPE_WORDS` (the one-off markers plus today, now, right now, for now, this time, just, yet,
+while, until, later and other temporal words), enforced in `validate`; every implicit one-off
+was rewritten to name its occasion instead. Pilot-C ("the only slot they have") therefore
+counts as explicit now, and `data/pilot.jsonl` is regenerated (it also gains `template`).
+Tests: `test_implicit_one_offs_have_no_scope_or_temporal_words`,
+`test_explicit_flag_changes_only_the_one_off`, `test_only_the_one_off_follows_the_cue`,
+`test_pilot_cues_follow_the_scope_words`.
+
+**7. Coherent domains and ended reasons (findings 8 and 15).** Each domain is one setting, with
+all three intros describing it and out-of-setting entries replaced (the writing domain's
+thesis, novel and journalism items became a bakery chain's content work). One-offs whose reason
+could last are followed later by a user turn saying it has ended (`OneOff.resolved`, for
+example "CI is back up, the runners were restarted."); the others name a single occasion (a
+PR number, a date, a document). The eight one-offs listed under finding 8 all have ended
+reasons, a different next task or a different probe.
+
+**8. Double-payment window (finding 16).** README.md ("Batch runs") explains that a crash after
+the provider accepts a batch but before it is recorded makes the next run pay for it again,
+and how to recover the first batch's results.
 
 ## 1. Fixed: the neutral format hid the extractor's and pinning's lists
 

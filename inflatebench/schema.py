@@ -95,6 +95,9 @@ class Scenario(Record):
     next_task: str
     probe: Probe
     position: str | None = None  # of the one-off; None in files written before it was stored
+    # The one-off template (one-off, next task and probe) the scenario was built from, e.g.
+    # "ops-o03"; scenarios sharing it are not independent. None in older files.
+    template: str | None = None
 
     def __post_init__(self) -> None:
         _check(self.length, LENGTHS, "length")
@@ -147,6 +150,8 @@ class Label(Record):
     quote: str = ""
     # The quote is still not in the summary after the judge was asked once to fix it.
     quote_flagged: bool = False
+    # The label is still not one the item's type allows after the judge was asked once.
+    type_flagged: bool = False
 
     def __post_init__(self) -> None:
         if self.item_id is None:
