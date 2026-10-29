@@ -2,7 +2,7 @@
 
 - **Date:** 2026-10-29
 - **Author:** Mohamed Azouz Mrad
-- **Frozen against:** SPEC.md and code at `main` commit `e750a7c`. Function and file names below refer to that commit.
+- **Frozen against:** SPEC.md and code at `main` commit `e750a7c`, plus PR #14 (balanced strong-model subset; human-check sample split over models). Function and file names below refer to that code.
 
 **Status.** No real-model results exist yet. The only model outputs so far are from the 30-summary pilot (ChatGPT and Gemini; `pilot.md`) and its 25 scenarios ported into `data/pilot.jsonl`. These are exploratory: they motivated the hypotheses and serve as test fixtures. They are excluded from every confirmatory analysis.
 
@@ -70,7 +70,7 @@ Condition `full`: the agent acts on the uncompacted history. It gets the same ta
 
 - **`main`:** a cheap Claude model run through the Batch API. **Confirmatory.**
 - **`local`:** an open model of about 8B parameters through Ollama (`llama3.1:8b`). **Confirmatory.**
-- **`strong`:** a stronger model on `subset: 60`. The CLI takes the first 60 scenarios of `data/scenarios.jsonl` (`cli.py`, `scenarios[:subset]`). Because of the file's domain order, these are all 48 coding scenarios plus 12 pipeline scenarios. Because this subset is unbalanced, the strong model is **exploratory only**.
+- **`strong`:** a stronger model on a 60-scenario subset, `subset: 60` (`generate.balanced_subset`). The subset has 12 scenarios per domain from 12 different templates. Each domain's 12 include 4 at each length, 4 at each position and 6 at each cue, and every length × position cell is covered. The strong model is **exploratory only**: it sees a quarter of the scenarios, so it is not in the confirmatory tests.
 - **Model ids:** the exact ids for `main`, `strong`, the judges and the tie-break are filled into `config.yaml` before the run. They are recorded in an addendum dated before any compaction call. Every call also logs its model name, date and tokens.
 - **Repeats:** 3 per scenario × condition × model (`repeats: 3`), at the provider-default temperature.
 - **Probe agent:** the probe agent is `agent: main` for every summary, whichever model compacted it.
@@ -135,7 +135,7 @@ Results are given per model and pooled.
 ## 5. Quality gates (fixed in advance)
 
 1. **Judge–human agreement before the main run.**
-   - *Sample:* the human check sample is drawn from the `main` model's compaction summaries before any judging or probing at scale. It has 200 (summary, item) pairs (`make_annotation_sample`, seed 0), stratified by item type × condition with equal shares per stratum.
+   - *Sample:* the human check sample is drawn from the compaction summaries of the `main` and `local` models before any judging or probing at scale. It has 200 (summary, item) pairs (`make_annotation_sample`, seed 0), 100 from each model. Within each model, the sample is stratified by item type × condition with equal shares per stratum.
    - *Labelling:* two people label the sample blind to condition, using `annotation/index.html`.
    - *Gate:* the overall Cohen's kappa between each human and the judge (`human_check`, block `unweighted_sample`) must be at least 0.7.
    - *If the gate fails:* the rubric is revised and re-validated on a fresh sample of 200, drawn with a new seed from pairs not in any earlier sample. Only labels from the final, validated rubric enter the analysis.
