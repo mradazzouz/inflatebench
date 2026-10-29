@@ -21,6 +21,9 @@ class FakeLLM:
         self.calls: list[list[Message]] = []
         self.batches: dict[str, dict[str, Completion | BatchError]] = {}
 
+    def settings(self) -> dict[str, Any]:
+        return {"provider": "fake", "model": self.model}
+
     def _text(self, messages: list[Message]) -> str:
         if callable(self.responses):
             return self.responses(messages)

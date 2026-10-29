@@ -380,11 +380,93 @@ def test_compact_dry_run_without_price_or_scenarios(tmp_path, capsys):
     scen.write_text(json.dumps(scenario(0)) + "\n")
     assert main(["compact", "--run-id", "r", "--dry-run", "--scenarios", str(scen)]) == 0
     assert "unknown: add 'CHANGE_ME' under prices" in capsys.readouterr().out
-    assert main(["compact", "--run-id", "r", "--dry-run", "--scenarios", str(tmp_path / "none.jsonl")]) == 2
-    assert main(["compact", "--run-id", "r", "--dry-run", "--model", "nope", "--scenarios", str(scen)]) == 2
+    with pytest.raises(SystemExit, match="not found"):
+        main(["compact", "--run-id", "r", "--dry-run", "--scenarios", str(tmp_path / "none.jsonl")])
+    with pytest.raises(SystemExit, match="no model 'nope'"):
+        main(["compact", "--run-id", "r", "--dry-run", "--model", "nope", "--scenarios", str(scen)])
 
 
 def test_batch_error_and_handle_types():
     assert BatchError("x").retryable and not BatchError("x", retryable=False).retryable
     assert BatchHandle("id", 1).size == 1
     assert Request.from_dict(Request("m", HISTORY, {"repeat": 1}).to_dict()) == Request("m", HISTORY, {"repeat": 1})
+
+
+# --- cache key covers provider settings; make_llm; ib compact through a configured provider --
+
+
+def test_changing_provider_settings_misses_the_cache(tmp_path):
+    def cached(**kw):
+        return CachedLLM(AnthropicLLM(kw.pop("model", "m"), client=FakeAnthropic(), **kw), DiskCache(tmp_path), model="label")
+
+    first = cached(max_tokens=512)
+    assert not first.complete(HISTORY).cached
+    assert cached(max_tokens=512).complete(HISTORY).cached
+    assert not cached(max_tokens=1024).complete(HISTORY).cached  # new setting, new answer
+    assert not cached(model="other", max_tokens=512).complete(HISTORY).cached  # same label, other model
+    assert cached(max_tokens=512, prompt_cache=False).complete(HISTORY).cached  # caching changes cost only
+
+    def ollama(url):
+        return CachedLLM(OpenAICompatibleLLM("llama3.1:8b", base_url=url, transport=lambda *a: ollama_reply()),
+                         DiskCache(tmp_path), model="local")
+
+    assert not ollama("http://a/v1").complete(HISTORY).cached
+    assert not ollama("http://b/v1").complete(HISTORY).cached
+    assert ollama("http://a/v1").complete(HISTORY).cached
+
+
+def test_run_batch_keys_requests_by_provider_settings(tmp_path):
+    llm = CachedLLM(FakeLLM(["x"]), DiskCache(tmp_path), model="fake")
+    bare = Request("fake", [Message("user", "hi")])  # built without settings
+    llm.run_batch([bare])
+    assert llm.complete([Message("user", "hi")]).cached
+    other = CachedLLM(FakeLLM(["y"], model="other"), DiskCache(tmp_path), model="fake")
+    assert other.run_batch([bare])[0].text == "y"
+
+
+def test_make_llm_builds_each_provider(monkeypatch):
+    from inflatebench.models import make_llm
+
+    fake = make_llm({"provider": "fake", "name": "f", "responses": ["hi"]})
+    assert fake.complete([Message("user", "x")]).text == "hi"
+    local = make_llm({"provider": "openai_compatible", "name": "llama3.1:8b", "base_url": "http://localhost:11434/v1"},
+                     {"llama3.1:8b": {"input": 0, "output": 0}})
+    assert isinstance(local, OpenAICompatibleLLM) and local.url == "http://localhost:11434/v1/chat/completions"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    claude = make_llm({"provider": "anthropic", "name": "m", "max_tokens": 256}, {"m": {"input": 1, "output": 5}})
+    assert isinstance(claude, AnthropicLLM) and claude.max_tokens == 256 and "m" in claude.prices
+    with pytest.raises(ValueError, match="set its name"):
+        make_llm({"provider": "anthropic", "name": "CHANGE_ME"})
+    with pytest.raises(ValueError, match="provider"):
+        make_llm({"provider": "nope", "name": "x"})
+
+
+def compact_config(tmp_path, main_model):
+    scen = tmp_path / "s.jsonl"
+    scen.write_text("".join(json.dumps(scenario(i, 40)) + "\n" for i in range(5)))
+    cfg = yaml.safe_load(open("config.yaml"))
+    cfg["models"]["main"] = main_model
+    cfg["paths"].update(scenarios=str(scen), runs=str(tmp_path / "runs"), cache=str(tmp_path / "cache"))
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump(cfg))
+    return str(path)
+
+
+def test_ib_compact_runs_the_configured_provider_without_fake(tmp_path):
+    path = compact_config(tmp_path, {"provider": "fake", "name": "f", "responses": ["NONE"], "subset": 3})
+    assert main(["--config", path, "compact", "--run-id", "r", "--condition", "free", "--repeats", "1"]) == 0
+    lines = (tmp_path / "runs/r/summaries.jsonl").read_text().splitlines()
+    assert len(lines) == 3  # the model's subset
+    assert all(json.loads(line)["model"] == "f" for line in lines)
+    calls = [json.loads(line) for line in (tmp_path / "runs/r/calls.jsonl").read_text().splitlines()]
+    assert {"cache_write_tokens", "cache_read_tokens", "cost"} <= set(calls[0])
+
+
+def test_ib_compact_reports_unconfigured_provider(tmp_path, monkeypatch):
+    path = compact_config(tmp_path, {"provider": "anthropic", "name": "CHANGE_ME"})
+    with pytest.raises(SystemExit, match="set its name"):
+        main(["--config", path, "compact", "--run-id", "r"])
+    path = compact_config(tmp_path, {"provider": "anthropic", "name": "m"})
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    with pytest.raises(SystemExit, match="ANTHROPIC_API_KEY"):
+        main(["--config", path, "compact", "--run-id", "r"])

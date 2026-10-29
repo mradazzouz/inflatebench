@@ -58,8 +58,6 @@ def estimate(
     prices: Prices,
     output_tokens: int = DEFAULT_OUTPUT_TOKENS,
 ) -> Estimate:
-    if entry.get("subset"):
-        scenarios = scenarios[: int(entry["subset"])]
     per_scenario = [
         approx_tokens("\n".join(m.content for m in s.history)) + PROMPT_OVERHEAD for s in scenarios
     ]

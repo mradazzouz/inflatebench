@@ -76,6 +76,10 @@ class OpenAICompatibleLLM:
         self.sleep = sleep
         self._batches: dict[str, dict[str, Completion | BatchError]] = {}
 
+    def settings(self) -> dict[str, Any]:
+        """Part of the cache key; the endpoint is included because it decides which weights answer."""
+        return {"provider": "openai_compatible", "model": self.model, "url": self.url, "max_tokens": self.max_tokens}
+
     def params(self, messages: list[Message], kw: dict[str, Any], model: str | None = None) -> dict[str, Any]:
         system, turns = to_chat(messages)
         body: dict[str, Any] = {"model": model or self.model, "messages": ([{"role": "system", "content": system}] if system else []) + turns}

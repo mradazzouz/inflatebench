@@ -14,16 +14,30 @@ PROVIDERS = ("anthropic", "openai_compatible", "fake")
 PLACEHOLDER = "CHANGE_ME"
 
 
+def check_entry(entry: dict[str, Any], key: str = "") -> dict[str, Any]:
+    what = f"model {key!r}" if key else "model"
+    if entry.get("provider") not in PROVIDERS:
+        raise ValueError(f"{what}: provider must be one of {PROVIDERS}")
+    if not entry.get("name") or entry["name"] == PLACEHOLDER:
+        raise ValueError(f"{what}: set its name in config.yaml")
+    return dict(entry)
+
+
 def model_entry(cfg: dict[str, Any], key: str) -> dict[str, Any]:
     models = cfg.get("models") or {}
     if key not in models:
         raise KeyError(f"no model {key!r} in config; have {sorted(models)}")
-    entry = dict(models[key])
-    if entry.get("provider") not in PROVIDERS:
-        raise ValueError(f"model {key!r}: provider must be one of {PROVIDERS}")
-    if not entry.get("name") or entry["name"] == PLACEHOLDER:
-        raise ValueError(f"model {key!r}: set its name in config.yaml")
-    return entry
+    return check_entry(models[key], key)
+
+
+def make_llm(spec: dict[str, Any], prices: Prices | dict[str, Any] | None = None) -> LLM:
+    """The provider for one `models:` entry of config.yaml (uncached; wrap it in CachedLLM).
+
+    `prices` is the config's `prices:` table, used for per-call cost; without it cost is 0.
+    """
+    if not isinstance(prices, Prices):
+        prices = Prices(prices)
+    return build_provider(check_entry(spec), prices)
 
 
 def build_provider(entry: dict[str, Any], prices: Prices) -> LLM:

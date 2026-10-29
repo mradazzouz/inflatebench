@@ -16,18 +16,29 @@ KEY_ONLY_PARAMS = frozenset({"repeat"})
 
 @dataclass
 class Request:
-    """One model call; its hash is the disk-cache key."""
+    """One model call; its hash is the disk-cache key.
+
+    `params` are per-call arguments passed to the provider; `settings` are the provider's own
+    configuration (model name, default max_tokens, endpoint), part of the key but never sent,
+    so changing a setting in config.yaml never returns a stale cached answer.
+    """
 
     model: str
     messages: list[Message]
     params: dict[str, Any] = field(default_factory=dict)
+    settings: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Request:
-        return cls(data["model"], [Message.from_dict(m) for m in data["messages"]], dict(data.get("params", {})))
+        return cls(
+            data["model"],
+            [Message.from_dict(m) for m in data["messages"]],
+            dict(data.get("params", {})),
+            dict(data.get("settings", {})),
+        )
 
     def key(self) -> str:
         canonical = json.dumps(self.to_dict(), sort_keys=True, ensure_ascii=False)
@@ -81,8 +92,14 @@ def strip_key_only(params: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in params.items() if k not in KEY_ONLY_PARAMS}
 
 
+def provider_settings(llm: Any) -> dict[str, Any]:
+    """What a provider sends besides the per-call params; a provider without settings() gives its model."""
+    settings = getattr(llm, "settings", None)
+    return settings() if callable(settings) else {"model": getattr(llm, "model", None)}
+
+
 from inflatebench.models.cache import CachedLLM, DiskCache  # noqa: E402
-from inflatebench.models.factory import from_config  # noqa: E402
+from inflatebench.models.factory import from_config, make_llm  # noqa: E402
 from inflatebench.models.fake import FakeLLM  # noqa: E402
 from inflatebench.models.pricing import Prices  # noqa: E402
 from inflatebench.models.retry import retry  # noqa: E402
@@ -101,6 +118,8 @@ __all__ = [
     "Request",
     "UsageLog",
     "from_config",
+    "make_llm",
+    "provider_settings",
     "retry",
     "strip_key_only",
 ]

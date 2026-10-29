@@ -89,17 +89,19 @@ class CachedLLM:
     """
 
     def __init__(self, llm: LLM, cache: DiskCache, model: str, usage: UsageLog | None = None) -> None:
+        from inflatebench.models import provider_settings
         from inflatebench.models.usage import UsageLog
 
         self.llm = llm
         self.cache = cache
         self.model = model
+        self.settings = provider_settings(llm)
         self.usage = usage if usage is not None else UsageLog()
 
     def request(self, messages: list[Message], **kw: Any) -> Request:
         from inflatebench.models import Request
 
-        return Request(model=self.model, messages=list(messages), params=dict(kw))
+        return Request(model=self.model, messages=list(messages), params=dict(kw), settings=dict(self.settings))
 
     def complete(self, messages: list[Message], **kw: Any) -> Completion:
         request = self.request(messages, **kw)
@@ -129,6 +131,8 @@ class CachedLLM:
         Cached requests are skipped; batches left by a crashed run are collected first;
         entries that fail transiently (expired, overloaded) are resubmitted up to `rounds` times.
         """
+        # Key every request by this provider's settings, however the caller built it.
+        requests = [replace(r, settings=dict(self.settings)) for r in requests]
         out: dict[str, Completion] = {}
         missing: dict[str, Request] = {}
         for r in requests:

@@ -14,3 +14,20 @@ class Condition(Protocol):
     name: str
 
     def compact(self, history: list[Message], llm: LLM) -> list[Message]: ...
+
+
+from inflatebench.conditions.extractor import Extractor  # noqa: E402
+from inflatebench.conditions.pinning import Pinning  # noqa: E402
+from inflatebench.conditions.summarize import FreeSummary, KeepRules, Sectioned  # noqa: E402
+
+CONDITIONS: dict[str, type[Condition]] = {c.name: c for c in (FreeSummary, Sectioned, KeepRules, Extractor, Pinning)}
+
+
+def get_condition(name: str) -> Condition:
+    try:
+        return CONDITIONS[name]()
+    except KeyError:
+        raise ValueError(f"unknown condition {name!r}; expected one of {list(CONDITIONS)}") from None
+
+
+__all__ = ["CONDITIONS", "Condition", "Extractor", "FreeSummary", "KeepRules", "Pinning", "Sectioned", "get_condition"]

@@ -58,6 +58,10 @@ class AnthropicLLM:
         self.retry_attempts = retry_attempts
         self.sleep = sleep
 
+    def settings(self) -> dict[str, Any]:
+        """Part of the cache key. Prompt caching changes cost, not answers, so it is left out."""
+        return {"provider": "anthropic", "model": self.model, "max_tokens": self.max_tokens}
+
     def _retry(self, fn: Callable[[], Any]) -> Any:
         return retry(fn, attempts=self.retry_attempts, sleep=self.sleep)
 
