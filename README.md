@@ -43,7 +43,9 @@ use the same file without `--scenarios`. For a real run, fill in the model names
    tie-break judge set under `judges:` and `tiebreak:` in `config.yaml`; the resolved labels
    are stored under judge `final`. Judges (and human annotators) see each compacted context in
    one neutral format: the summary, any appended constraint list and any pinned block merged
-   as plain text under a single header, with every condition-specific header removed. Each
+   as plain text under a single header. The summary header is removed and the extractor's and
+   pinning's list headers both become `User constraints:`, so an appended list still reads as
+   constraints (not as more items of the summary's last section) without saying which fix made it. Each
    quote must appear in that text (ignoring case and whitespace); a judge whose quotes do not
    is asked once to fix them, and quotes still missing are flagged (`quote_flagged`). The
    flag rate per judge is printed and stored in `judge.json` and the report; above 10% `ib judge`
@@ -155,7 +157,11 @@ OpenAI's reasoning models take `max_completion_tokens` instead of `max_tokens`; 
 `params:` and leave `max_tokens` unset.
 
 Every call is cached on disk under `paths.cache` by a hash of its request, so reruns cost
-nothing; batches submitted by a crashed run are collected on the next run instead of being
+nothing. A reply that is empty or was cut off by `max_tokens` (stop reason `max_tokens` or
+`length`) is never cached or used: the stage stops with an error, so a truncated summary,
+verdict or agent turn is never scored. `ib analyze` also stops when the final labels or the
+probes do not cover `summaries.jsonl` exactly once (left over from an earlier `ib compact` of
+the run id, or from a stage that stopped part way); batches submitted by a crashed run are collected on the next run instead of being
 resubmitted. Transient errors (429, 5xx, overload, dropped connections) are retried with
 exponential backoff. Each call's model, date, token counts (including prompt-cache reads and
 writes) and cost are logged by `UsageLog`.

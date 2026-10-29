@@ -149,7 +149,11 @@ def _compact(args: argparse.Namespace) -> int:
     cfg = load_config(args.config)
     if args.model not in cfg["models"]:
         raise SystemExit(f"ib compact: no model {args.model!r} in config; have {sorted(cfg['models'])}")
-    conditions = [get_condition(n) for n in args.condition or cfg["conditions"]]
+    names = args.condition or cfg["conditions"]
+    if len(set(names)) != len(names):
+        # Each would be written again under the same key and counted twice by every later stage.
+        raise SystemExit(f"ib compact: conditions listed more than once: {names}")
+    conditions = [get_condition(n) for n in names]
     path = Path(args.scenarios or cfg["paths"]["scenarios"])
     if not path.exists():
         raise SystemExit(f"ib compact: {path} not found; run ib generate or pass --scenarios")

@@ -141,8 +141,8 @@ def test_panel_final_labels_keep_quote_flags(pilot):
 
 
 def test_judge_sees_one_neutral_format_whatever_the_condition(pilot):
-    from inflatebench.conditions import NEUTRAL_HEADER, get_condition
-    from inflatebench.conditions._common import CONDITION_HEADERS, prompt
+    from inflatebench.conditions import NEUTRAL_HEADER, NEUTRAL_LIST_HEADER, get_condition
+    from inflatebench.conditions._common import prompt
     from inflatebench.schema import Summary
 
     def respond(messages):
@@ -164,12 +164,28 @@ def test_judge_sees_one_neutral_format_whatever_the_condition(pilot):
     for body in seen:
         assert body.startswith(NEUTRAL_HEADER + "\n\n")
         assert body.count(NEUTRAL_HEADER) == 1
-        assert not any(prompt(h) in body for h in CONDITION_HEADERS)
+        assert not any(prompt(h) in body for h in ("summary_header", "pinned_header"))
         for word in ("pinned", "verbatim", "extract", "sectioned", "condition"):
             assert word not in body.lower()
     # Every condition's constraint text survives the merge; only the headers go.
     assert len(seen) == 3 and all("Never deploy on Fridays." in t for t in seen)
     assert seen[1].count("- Never deploy on Fridays.") == seen[2].count("- Never deploy on Fridays.") == 2
+    # Extracted and pinned lists look alike and are still marked as constraints.
+    assert NEUTRAL_LIST_HEADER not in seen[0]
+    assert seen[1] == seen[2] and seen[1].count(NEUTRAL_LIST_HEADER + "\n- Never deploy") == 1
+
+
+def test_neutral_format_keeps_appended_lists_out_of_the_last_section():
+    """Without a header, an extracted one-off would read as one more Next Step to the judge."""
+    from inflatebench.conditions import NEUTRAL_LIST_HEADER, neutral_context
+    from inflatebench.conditions._common import bullets, prompt, summary_message
+
+    summary = "## Next Steps\n- Schedule the job nightly."
+    for header in ("extracted_header", "pinned_header"):
+        messages = [summary_message(summary + "\n\n" + bullets(prompt(header), ["Drop rows with no country"]))]
+        text = neutral_context(messages)
+        assert text.endswith("- Schedule the job nightly.\n\n" + NEUTRAL_LIST_HEADER
+                             + "\n- Drop rows with no country")
 
 
 def test_panel_agreement_skips_tiebreak(pilot, summaries):

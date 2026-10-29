@@ -83,7 +83,7 @@ class Deferred:
             if hit is None:
                 s.queue[k] = r
                 raise Pending(k)
-            return hit
+            return self.llm.check(hit)
         if k in s.fresh:
             # Its usage was logged when the phase collected it; hand it over once as paid.
             return s.fresh.pop(k)

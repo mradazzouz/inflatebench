@@ -14,7 +14,7 @@ from inflatebench.analyze import plots
 from inflatebench.analyze.stats import mixed_logit, ratio_ci
 from inflatebench.judge.judges import FINAL
 from inflatebench.judge.run import quote_flag_rates
-from inflatebench.schema import Label, ProbeResult, Scenario, read_jsonl
+from inflatebench.schema import Label, ProbeResult, Scenario, Summary, read_jsonl
 
 
 def inflation_rates(items: pd.DataFrame, n_boot: int = 2000, seed: int = 0) -> pd.DataFrame:
@@ -139,10 +139,54 @@ def analyze(labels: Iterable[Label], scenarios: Iterable[Scenario],
     return summary
 
 
+def check_coverage(summaries: Iterable[Summary], scenarios: Iterable[Scenario],
+                   labels: Iterable[Label], probes: Iterable[ProbeResult] | None,
+                   judge: str = FINAL) -> None:
+    """Raise ValueError unless the judge labelled every planted item of every summary exactly
+    once, and there is exactly one probe per summary, with nothing left over from another run.
+
+    Labels or probes from an earlier ib compact of the same run id, a judge or probe run that
+    stopped part way, or a summary written twice would otherwise be counted without a word.
+    """
+    items = {s.id: [i.id for i in s.items] for s in scenarios}
+    keys = [(s.scenario_id, s.condition, s.model, s.repeat) for s in summaries]
+    if len(set(keys)) != len(keys):
+        raise ValueError("summaries.jsonl has the same summary more than once")
+    want = {k + (i,) for k in keys for i in items[k[0]]}
+    got = [(l.scenario_id, l.condition, l.model, l.repeat, l.item_id)
+           for l in labels if l.judge == judge and l.item_id is not None]
+
+    def problems(found: list[tuple], expected: set[tuple], what: str) -> list[str]:
+        out = []
+        if len(set(found)) != len(found):
+            out.append(f"{len(found) - len(set(found))} duplicate {what}")
+        if missing := expected - set(found):
+            out.append(f"{len(missing)} {what} missing, e.g. {sorted(missing)[0]}")
+        if extra := set(found) - expected:
+            out.append(f"{len(extra)} {what} for no current summary, e.g. {sorted(extra)[0]}")
+        return out
+
+    errors = problems(got, want, f"{judge!r} labels")
+    if probes is not None:
+        errors += problems([(p.scenario_id, p.condition, p.model, p.repeat) for p in probes],
+                           set(keys), "probes")
+    if errors:
+        raise ValueError("labels or probes do not match summaries.jsonl (rerun ib judge or "
+                         "ib probe): " + "; ".join(errors))
+
+
 def analyze_run(run_dir: str | Path, scenarios_path: str | Path, **kw: Any) -> dict[str, Any]:
-    """Read labels.jsonl (and probes.jsonl if present) from a run and write its report/."""
+    """Read labels.jsonl (and probes.jsonl if present) from a run and write its report/.
+
+    When the run has summaries.jsonl, final labels and probes must cover it exactly
+    (check_coverage).
+    """
     run_dir = Path(run_dir)
     probes_path = run_dir / "probes.jsonl"
     probes = list(read_jsonl(probes_path, ProbeResult)) if probes_path.exists() else None
-    return analyze(read_jsonl(run_dir / "labels.jsonl", Label),
-                   read_jsonl(scenarios_path, Scenario), probes, run_dir / "report", **kw)
+    labels = list(read_jsonl(run_dir / "labels.jsonl", Label))
+    scenarios = list(read_jsonl(scenarios_path, Scenario))
+    if (run_dir / "summaries.jsonl").exists():
+        # The panel's final labels cover every item; a single judge's (--judge) may not.
+        check_coverage(read_jsonl(run_dir / "summaries.jsonl", Summary), scenarios, labels, probes)
+    return analyze(labels, scenarios, probes, run_dir / "report", **kw)
