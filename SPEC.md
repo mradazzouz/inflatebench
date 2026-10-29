@@ -53,12 +53,13 @@ Version 1 has 240 scenarios: 5 domains x 48, each a conversation history with si
 **Data format** (one JSON object per line in data/scenarios.jsonl):
 
 ```json
-{"id": "ops-017", "domain": "ops", "seed": 17, "length": "medium", "cue": "implicit",
+{"id": "ops-017", "domain": "ops", "seed": 17, "length": "medium", "cue": "explicit",
  "items": [{"id": "o1", "type": "one_off", "text": "restart it with --force this time",
             "scope": "the restart on turn 6", "key": "--force", "turn": 6}],
  "history": [{"role": "user", "content": "..."}, {"role": "tool", "content": "..."}],
  "next_task": "Restart the worker after the config change.",
- "probe": {"tool": "restart_worker", "inflated_if": {"args.force": true}}}
+ "probe": {"tool": "restart_worker", "inflated_if": {"args.force": true}},
+ "position": "middle"}
 ```
 
 The 25 pilot scenarios (pilot.md) are ported into data/pilot.jsonl as fixtures for tests.
@@ -116,7 +117,7 @@ The judge also lists any **invented** rules that match no planted item.
 - Constraint precision: share of rules listed in the summary that are genuinely standing and correctly scoped.
 - Constraint recall: share of active rules preserved; loss rate equals 1 minus recall.
 - Behavioural inflation rate: share of probes where the agent acts on an inflated rule.
-- Statistics: 95% bootstrap intervals over scenarios, and a mixed-effects logistic regression with condition, model, cue and length as fixed effects and scenario as a random effect.
+- Statistics: 95% bootstrap intervals over scenarios, and a mixed-effects logistic regression with condition, model, cue, length and one-off position as fixed effects and scenario as a random effect.
 
 ## Repository layout and interfaces
 

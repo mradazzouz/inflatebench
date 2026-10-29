@@ -41,14 +41,23 @@ use the same file without `--scenarios`. For a real run, fill in the model names
    (repeatable), `--limit N`, `--repeats N`, `--dry-run` for a cost estimate.
 3. **judge** labels every planted item in every summary with the two judges and the
    tie-break judge set under `judges:` and `tiebreak:` in `config.yaml`; the resolved labels
-   are stored under judge `final`.
+   are stored under judge `final`. Judges (and human annotators) see each compacted context in
+   one neutral format: the summary, any appended constraint list and any pinned block merged
+   as plain text under a single header, with every condition-specific header removed. Each
+   quote must appear in that text (ignoring case and whitespace); a judge whose quotes do not
+   is asked once to fix them, and quotes still missing are flagged (`quote_flagged`). The
+   flag rate per judge is printed and stored in `judge.json` and the report.
 4. **probe** gives the agent model (`agent:` in `config.yaml`, or `--model KEY`) the compacted
    context, the scenario's next task and mock tools for its domain, then checks the
    tool-call arguments against the scenario's `probe.inflated_if`. The check is
    deterministic; no judge is involved. Options: `--max-steps N` agent replies per probe.
 5. **analyze** writes inflation rates by type, constraint precision and recall,
    behavioural inflation rates (all with 95% bootstrap intervals over scenarios),
-   mixed-effects regressions, `summary.json` and figures. Options: `--judge NAME`,
+   mixed-effects regressions (fixed effects for condition, model, cue, length and one-off
+   position; a random intercept per scenario), `summary.json` and figures. `behaviour.csv` gives
+   the behavioural rate over all probes (`rate`), how often the agent called the probe tool at
+   all (`called_rate`), and the behavioural rate among probes that called it
+   (`rate_when_called`). Options: `--judge NAME`,
    `--n-boot N`, `--no-figures`.
 
 Each stage logs its model calls (`calls.jsonl`, `judge_calls.jsonl`, `probe_calls.jsonl`)
@@ -161,11 +170,34 @@ ib compact --run-id r1 --dry-run --model strong --condition free
 pip install -e '.[dev]'
 ib generate --n 240 --seed 0          # writes data/scenarios.jsonl
 ib generate --pilot                   # ports pilot.md to data/pilot.jsonl
+ib generate --heldout                 # the 40 private held-out scenarios, data/heldout.jsonl
 ib generate --paraphrase-model KEY    # paraphrase items with a model from config.yaml
 ```
 
 Without `--paraphrase-model`, items use the curated phrase-bank text verbatim.
-The same `--seed` always gives the same scenarios.
+The same `--seed` always gives the same scenarios. Each scenario records the one-off's
+`position` (early, middle or late in the history).
+
+The held-out set uses its own base seed (1000 unless `--seed` is given) and ids prefixed
+`heldout-`, so it never repeats a main-set scenario. It holds 8 scenarios per domain, each of
+the domain's eight one-offs once, 20 explicit and 20 implicit cues, and 13 or 14 of each length
+and position. `data/heldout.jsonl` is gitignored; keep it private.
+
+## Design notes
+
+**Paired summaries for the sectioned, extractor and pinning conditions.** Extractor and
+pinning both build on the sectioned template: they send the same sectioned prompt over the
+same history, under the same cache key, as the sectioned condition. So within a repeat, all
+three conditions share one sectioned summary (made once and read from the disk cache), and
+differ only in what is added to it: extractor appends its extracted constraint list, and
+pinning appends its pinned block of verbatim quotes. The comparison is paired by design.
+Differences between these three conditions come from the added constraints, not from
+sampling noise between summaries, which is exactly the trade-off RQ3 asks about (do the fixes
+trade lost rules for inflated ones). The flip side is that they are not independent samples.
+Across repeats the summaries do differ, and the bootstrap resamples scenarios, so intervals
+already account for the shared scenarios. Free and keep-rules make their own summary calls.
+`ib compact --dry-run` counts the shared summary once per condition, so its estimate is an
+upper bound.
 
 ## Licence
 

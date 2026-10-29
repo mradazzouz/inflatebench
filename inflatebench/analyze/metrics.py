@@ -10,6 +10,7 @@ from typing import Iterable
 
 import pandas as pd
 
+from inflatebench.generate.validate import one_off_position
 from inflatebench.judge.judges import FINAL
 from inflatebench.schema import INVENTED, Label, ProbeResult, Scenario
 
@@ -42,12 +43,19 @@ GENUINE = ("correct", "hardened", "softened")
 SPURIOUS = ("promoted", "widened", "request_promoted", "stale")
 
 
+FACTOR_COLUMNS = ["domain", "cue", "length", "position"]
+
+
+def scenario_factors(s: Scenario) -> dict[str, str | None]:
+    return {"domain": s.domain, "cue": s.cue, "length": s.length, "position": one_off_position(s)}
+
+
 def item_frame(labels: Iterable[Label], scenarios: Iterable[Scenario],
                judge: str = FINAL) -> pd.DataFrame:
     """One row per planted item per summary, joined with the scenario factors."""
     items, factors = {}, {}
     for s in scenarios:
-        factors[s.id] = {"domain": s.domain, "cue": s.cue, "length": s.length}
+        factors[s.id] = scenario_factors(s)
         for i in s.items:
             items[(s.id, i.id)] = {"item_type": i.type, "scoped": i.scope is not None}
     rows = []
@@ -59,7 +67,7 @@ def item_frame(labels: Iterable[Label], scenarios: Iterable[Scenario],
                      "label": lab.label, **items[(lab.scenario_id, lab.item_id)],
                      **factors[lab.scenario_id]})
     return pd.DataFrame(rows, columns=["scenario_id", "condition", "model", "repeat", "item_id",
-                                       "label", "item_type", "scoped", "domain", "cue", "length"])
+                                       "label", "item_type", "scoped", *FACTOR_COLUMNS])
 
 
 def invented_frame(labels: Iterable[Label], judge: str = FINAL) -> pd.DataFrame:
@@ -71,12 +79,13 @@ def invented_frame(labels: Iterable[Label], judge: str = FINAL) -> pd.DataFrame:
 
 
 def probe_frame(probes: Iterable[ProbeResult], scenarios: Iterable[Scenario]) -> pd.DataFrame:
-    factors = {s.id: {"domain": s.domain, "cue": s.cue, "length": s.length} for s in scenarios}
+    factors = {s.id: scenario_factors(s) for s in scenarios}
     rows = [{"scenario_id": p.scenario_id, "condition": p.condition, "model": p.model,
-             "repeat": p.repeat, "inflated": bool(p.inflated), **factors[p.scenario_id]}
+             "repeat": p.repeat, "inflated": bool(p.inflated), "probe_called": bool(p.probe_called),
+             **factors[p.scenario_id]}
             for p in probes]
     return pd.DataFrame(rows, columns=["scenario_id", "condition", "model", "repeat", "inflated",
-                                       "domain", "cue", "length"])
+                                       "probe_called", *FACTOR_COLUMNS])
 
 
 def eligible(df: pd.DataFrame, kind: str) -> pd.Series:
@@ -136,3 +145,14 @@ def inflation_eligible(items: pd.DataFrame) -> pd.Series:
 def behaviour_counts(probes: pd.DataFrame, by: list[str] = GROUP) -> pd.DataFrame:
     """Probes where the agent acted on an inflated rule over all probes."""
     return per_scenario(probes, probes["inflated"], pd.Series(True, index=probes.index), by)
+
+
+def called_counts(probes: pd.DataFrame, by: list[str] = GROUP) -> pd.DataFrame:
+    """Probes where the agent called the probe tool at all over all probes."""
+    return per_scenario(probes, probes["probe_called"], pd.Series(True, index=probes.index), by)
+
+
+def behaviour_when_called_counts(probes: pd.DataFrame, by: list[str] = GROUP) -> pd.DataFrame:
+    """Inflated probes over probes that called the probe tool (an inflated call is always one)."""
+    called = probes["probe_called"]
+    return per_scenario(probes, probes["inflated"] & called, called, by)

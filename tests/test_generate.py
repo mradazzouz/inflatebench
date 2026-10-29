@@ -3,9 +3,19 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
+import yaml
 
 from inflatebench.cli import main
-from inflatebench.generate import Paraphraser, build_scenario, factors, generate, load_pilot, validate
+from inflatebench.generate import (
+    HELDOUT_SEED,
+    Paraphraser,
+    build_scenario,
+    factors,
+    generate,
+    generate_heldout,
+    load_pilot,
+    validate,
+)
 from inflatebench.generate.banks import EXPLICIT_MARKERS, OneOff, count_key, cue_ok
 from inflatebench.generate.builder import TARGET_TOKENS, TOKEN_TOLERANCE
 from inflatebench.generate.domains import DOMAINS
@@ -125,6 +135,43 @@ def test_full_set_round_trips_through_jsonl(full, tmp_path):
     path = tmp_path / "s.jsonl"
     write_jsonl(path, full[:10])
     assert list(read_jsonl(path, Scenario)) == full[:10]
+
+
+def test_position_is_stored_and_validated(full):
+    for s in full:
+        assert s.position == factors(int(s.id.split("-")[1]))[2] == position(s, "o1")
+    s = Scenario.from_dict(full[0].to_dict())
+    s.position = next(p for p in ("early", "middle", "late") if p != s.position)
+    assert any("position is" in e for e in validate(s))
+
+
+def test_heldout_set_is_balanced_reproducible_and_separate(full):
+    held = generate_heldout()
+    assert held == generate_heldout() and len(held) == 40
+    assert all(s.id.startswith("heldout-") and validate(s) == [] for s in held)
+    assert not {s.id for s in held} & {s.id for s in full}
+    assert all(s.seed >= HELDOUT_SEED * 1000 for s in held)  # its own seed, never the main set's
+    main_texts = {json.dumps([m.to_dict() for m in s.history]) for s in full}
+    assert not any(json.dumps([m.to_dict() for m in s.history]) in main_texts for s in held)
+    assert Counter(s.domain for s in held) == {d: 8 for d in DOMAINS}
+    assert Counter(s.cue for s in held) == {"explicit": 20, "implicit": 20}
+    for factor in ("length", "position"):
+        assert set(Counter(getattr(s, factor) for s in held).values()) <= {13, 14}
+    for d in DOMAINS:
+        one_offs = [next(i.key for i in s.items if i.id == "o1") for s in held if s.domain == d]
+        assert len(set(one_offs)) == 8  # every one-off of the domain once
+        assert Counter(s.cue for s in held if s.domain == d) == {"explicit": 4, "implicit": 4}
+
+
+def test_cli_generate_heldout(tmp_path):
+    out = tmp_path / "heldout.jsonl"
+    assert main(["generate", "--heldout", "--out", str(out)]) == 0
+    assert list(read_jsonl(out, Scenario)) == generate_heldout()
+    cfg = yaml.safe_load(open(ROOT / "config.yaml"))
+    assert cfg["paths"]["heldout"] == "data/heldout.jsonl"
+    assert "data/heldout.jsonl" in (ROOT / ".gitignore").read_text().split()
+    with pytest.raises(SystemExit):
+        main(["generate", "--heldout", "--pilot", "--out", str(out)])
 
 
 def test_generation_is_reproducible(full):
@@ -266,8 +313,21 @@ def test_pilot_port_matches_committed_fixture():
     for s in ported:
         assert validate(s) == [], s.id
         assert s.length == "short"
-        assert s.cue == ("implicit" if s.id[-1].isalpha() else "explicit")
+        assert s.cue == ("implicit" if s.id in ("pilot-A", "pilot-C", "pilot-D") else "explicit")
+        assert s.position == position(s, "o1")
         assert all(m.content and not m.content.startswith("Next, ") for m in s.history)
+
+
+def test_pilot_cues_follow_the_scope_words():
+    # B ("--force this time") and E ("For this run") state their scope outright; C's
+    # "the only slot they have" is not a scope word, so C stays implicit.
+    pilot = {s.id: s for s in load_pilot(ROOT / "pilot.md")}
+    assert pilot["pilot-B"].cue == pilot["pilot-E"].cue == "explicit"
+    for s in pilot.values():
+        o1 = next(i for i in s.items if i.type == "one_off")
+        if s.cue == "implicit" and s.id != "pilot-C":
+            assert cue_ok(o1.text, "one_off", "implicit"), s.id
+    assert pilot["pilot-C"].cue == "implicit"
 
 
 def test_pilot_scenario_e():

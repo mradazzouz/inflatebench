@@ -6,11 +6,10 @@ from collections import Counter
 
 from inflatebench.generate.banks import count_key
 from inflatebench.generate.tools import TOOLS
-from inflatebench.schema import Scenario
+from inflatebench.schema import POSITIONS, Scenario
 
 # Planted items per scenario (SPEC.md, "Scenario design").
 ITEM_COUNTS = {"one_off": 1, "preference": 1, "request": 2, "hard_rule": 1, "changed_value": 1}
-POSITIONS = ("early", "middle", "late")
 
 
 def validate(s: Scenario) -> list[str]:
@@ -52,6 +51,11 @@ def validate(s: Scenario) -> list[str]:
                 errors.append(f"probe path {path!r} is not an argument of {s.probe.tool}")
     if not s.probe.inflated_if:
         errors.append("probe has no inflated_if condition")
+    one_offs = [i for i in s.items if i.type == "one_off"]
+    if s.position is not None and one_offs and 0 <= one_offs[0].turn < len(s.history):
+        actual = position(s, one_offs[0].id)
+        if s.position != actual:
+            errors.append(f"position is {s.position!r} but the one-off sits {actual}")
     return errors
 
 
@@ -68,6 +72,14 @@ def approx_tokens(text: str) -> int:
 
 def history_tokens(s: Scenario) -> int:
     return sum(approx_tokens(m.content) for m in s.history)
+
+
+def one_off_position(s: Scenario) -> str | None:
+    """The stored position of the one-off, or computed from the history for older files."""
+    if s.position is not None:
+        return s.position
+    one_off = next((i for i in s.items if i.type == "one_off"), None)
+    return position(s, one_off.id) if one_off else None
 
 
 def position(s: Scenario, item_id: str) -> str:

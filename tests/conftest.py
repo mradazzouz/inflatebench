@@ -44,11 +44,14 @@ def synthetic_run(base: list[Scenario], n_scenarios: int = 40, models=("m-a", "m
                   repeats: int = 2, seed: int = 0):
     """Scenarios cloned from the pilot fixtures, with final labels and probes drawn at known rates."""
     rng = random.Random(seed)
+    call_rng = random.Random(seed + 1)  # separate, so the label and probe draws stay as they were
     scenarios = []
     for k in range(n_scenarios):
         s = base[k % len(base)]
         scenarios.append(replace(s, id=f"syn-{k:03d}", seed=k, cue=("explicit", "implicit")[k % 2],
-                                 length=("short", "medium", "long")[k % 3]))
+                                 length=("short", "medium", "long")[k % 3],
+                                 # k // 6, so position is not confounded with cue and length
+                                 position=("early", "middle", "late")[(k // 6) % 3]))
     labels, probes = [], []
     for s in scenarios:
         bias = rng.gauss(0, 0.5)  # per-scenario difficulty, the random effect
@@ -65,5 +68,6 @@ def synthetic_run(base: list[Scenario], n_scenarios: int = 40, models=("m-a", "m
                         labels.append(Label(judge=FINAL, item_id=None, label=INVENTED,
                                             quote="Always notify on-call.", **meta))
                     acted = any_inflated and rng.random() < min(1.0, 0.6 + bias / 4)
-                    probes.append(ProbeResult(inflated=acted, **meta))
+                    called = acted or call_rng.random() < 0.5
+                    probes.append(ProbeResult(inflated=acted, probe_called=called, **meta))
     return scenarios, labels, probes

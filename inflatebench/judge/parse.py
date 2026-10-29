@@ -20,6 +20,9 @@ class Verdict:
 
     items: dict[str, tuple[str, str]]
     invented: list[str] = field(default_factory=list)
+    # Quotes not found in the summary after one re-ask: item ids, and invented quotes.
+    flagged_items: set[str] = field(default_factory=set)
+    flagged_invented: set[str] = field(default_factory=set)
 
 
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
@@ -73,9 +76,20 @@ def normalize(text: str) -> str:
     return " ".join(re.findall(r"\w+", text.lower()))
 
 
+def _squash(text: str) -> str:
+    return " ".join(text.lower().split())
+
+
 def quote_in_summary(quote: str, summary: str) -> bool:
-    """True if the quote appears in the summary, ignoring case, spacing and punctuation."""
-    return normalize(quote) in normalize(summary)
+    """True if the quote appears in the summary, ignoring case and whitespace."""
+    return _squash(quote) in _squash(summary)
+
+
+def unquoted(verdict: Verdict, summary: str) -> tuple[set[str], set[str]]:
+    """Item ids and invented quotes whose quote is not in the summary (an empty quote passes)."""
+    items = {i for i, (_, q) in verdict.items.items() if q.strip() and not quote_in_summary(q, summary)}
+    invented = {q for q in verdict.invented if not quote_in_summary(q, summary)}
+    return items, invented
 
 
 def same_rule(a: str, b: str, threshold: float = 0.5) -> bool:

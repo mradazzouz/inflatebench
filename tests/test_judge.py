@@ -94,14 +94,82 @@ def test_llm_judge_labels_summary(pilot, summaries):
         assert quote_in_summary(lab.quote, summaries[1].text)
 
 
+GOOD_TEXT = "\n".join(q for _, q in GOOD.values())  # a summary holding every GOOD quote
+
+
 def test_llm_judge_retries_then_fails(pilot):
     llm = FakeLLM(["garbage", reply(GOOD)])
-    labels = LLMJudge("j1", llm).label(pilot[2], "text")
+    labels = LLMJudge("j1", llm).label(pilot[2], GOOD_TEXT)
     assert len(llm.calls) == 2
     assert "invalid" in llm.calls[1][-1].content
     assert {l.label for l in labels} == {"correct"}
     with pytest.raises(JudgeError):
-        LLMJudge("j1", FakeLLM(["garbage"]), retries=1).label(pilot[2], "text")
+        LLMJudge("j1", FakeLLM(["garbage"]), retries=1).label(pilot[2], GOOD_TEXT)
+
+
+def test_quotes_are_checked_reasked_once_then_flagged(pilot):
+    spaced = "  NEVER deploy   on\nFridays. " + GOOD_TEXT.split("\n", 1)[1]  # case and spacing differ
+    llm = FakeLLM([reply(GOOD)])
+    labels = LLMJudge("j1", llm).label(pilot[2], spaced)
+    assert len(llm.calls) == 1 and not any(l.quote_flagged for l in labels)
+
+    made_up = GOOD | {"o1": ("promoted", "Always disable the canary step.")}
+    fixed = FakeLLM([reply(made_up, ["Rule nobody wrote."]), reply(GOOD)])
+    labels = LLMJudge("j1", fixed).label(pilot[2], GOOD_TEXT)
+    assert len(fixed.calls) == 2  # re-asked once
+    reask = fixed.calls[1][-1].content
+    assert "Always disable the canary step." in reask and "Rule nobody wrote." in reask
+    assert not any(l.quote_flagged for l in labels)
+
+    stubborn = FakeLLM([reply(made_up, ["Rule nobody wrote."])])
+    labels = LLMJudge("j1", stubborn).label(pilot[2], GOOD_TEXT)
+    assert len(stubborn.calls) == 2  # only one re-ask, then flagged
+    flagged = {(l.item_id, l.quote) for l in labels if l.quote_flagged}
+    assert flagged == {("o1", "Always disable the canary step."), (None, "Rule nobody wrote.")}
+    absent = FakeLLM([reply(GOOD | {"r1": ("correct", "")})])
+    assert not any(l.quote_flagged for l in LLMJudge("j1", absent).label(pilot[2], GOOD_TEXT))
+
+
+def test_panel_final_labels_keep_quote_flags(pilot):
+    made_up = GOOD | {"o1": ("promoted", "Always disable the canary step.")}
+    panel = PanelJudge(LLMJudge("a", FakeLLM([reply(made_up)])), LLMJudge("b", FakeLLM([reply(GOOD)])),
+                       LLMJudge("c", FakeLLM([reply(made_up)])))
+    labels = panel.label(pilot[2], GOOD_TEXT)
+    final = {l.item_id: l for l in labels if l.judge == FINAL}
+    assert final["o1"].label == "promoted" and final["o1"].quote_flagged  # decided by the flagged c
+    assert not any(l.quote_flagged for l in labels if l.judge == "b")
+
+
+def test_judge_sees_one_neutral_format_whatever_the_condition(pilot):
+    from inflatebench.conditions import NEUTRAL_HEADER, get_condition
+    from inflatebench.conditions._common import CONDITION_HEADERS, prompt
+    from inflatebench.schema import Summary
+
+    def respond(messages):
+        if "constraint" in messages[0].content:
+            return "- Never deploy on Fridays."
+        return "## Goal\nShip the release.\n\n## Constraints & Preferences\n- Never deploy on Fridays."
+
+    seen = []
+
+    def judge(msgs):
+        seen.append(msgs[1].content.split("<summary>\n", 1)[1].split("\n</summary>", 1)[0])
+        return reply({k: (label, "") for k, (label, _) in GOOD.items()})  # no quotes, no re-ask
+
+    judge_llm = FakeLLM(judge)
+    s = pilot[2]
+    for name in ("sectioned", "extractor", "pinning"):
+        messages = get_condition(name).compact(s.history, FakeLLM(respond))
+        LLMJudge("j", judge_llm).label(s, Summary(s.id, name, "m", 0, messages))
+    for body in seen:
+        assert body.startswith(NEUTRAL_HEADER + "\n\n")
+        assert body.count(NEUTRAL_HEADER) == 1
+        assert not any(prompt(h) in body for h in CONDITION_HEADERS)
+        for word in ("pinned", "verbatim", "extract", "sectioned", "condition"):
+            assert word not in body.lower()
+    # Every condition's constraint text survives the merge; only the headers go.
+    assert len(seen) == 3 and all("Never deploy on Fridays." in t for t in seen)
+    assert seen[1].count("- Never deploy on Fridays.") == seen[2].count("- Never deploy on Fridays.") == 2
 
 
 def test_panel_agreement_skips_tiebreak(pilot, summaries):
@@ -171,6 +239,8 @@ def test_annotation_sample_is_blind_and_round_trips(tmp_path, pilot, summaries):
     for row in sample:
         assert "condition" not in row and "model" not in row
         assert row["summary"] and row["history"][0]["role"] == "user"
+        assert row["summary"].startswith("Context carried over from the earlier conversation:")
+        assert "Summary of the earlier conversation:" not in row["summary"]  # neutral format
     assert make_annotation_sample(pilot, summaries, n=8, seed=1)[0] == sample
     # Two annotators label the sample as the page would save it.
     truth = {"sectioned": GOOD, "free": BAD}
