@@ -4,7 +4,7 @@ An independent end-to-end review of the repository as of commit `0b5789b`. I rea
 module, checked the data, and ran the whole pipeline offline. This file lists every issue
 found, what was fixed (each fix has a test), and what is left for a human decision.
 
-Test suite: 154 tests passed before the audit, 166 after the first round of fixes, and 178 after
+Test suite: 154 tests passed before the audit, 166 after the first round of fixes, and 180 after
 the follow-up changes (`pytest`, no API keys).
 
 ## Summary
@@ -277,13 +277,22 @@ intended.
     changed values have no scope, the preference id is `s1`, not `p1`, and there is no `position`.
     That is how bug 1 stayed hidden. Consider regenerating it from `data/pilot.jsonl`.
 
-New with the follow-up changes:
+## Decided by the maintainer
 
-19. **Flagged quotes still count.** Labels whose quote stays unverified are reported but not
-    excluded. Decide whether to drop them, send them to the tie-break judge, or keep them, once
-    the flag rate on real judges is known.
-20. **Free versus sectioned stays visible.** See follow-up A: the model-written structure still
-    separates free summaries from the sectioned-based conditions.
+19. **Flagged quotes count in the main results.** Labels whose quote stays unverified are kept
+    in every main metric. The paper adds a robustness check that excludes them; agreement between
+    the two strengthens the result. `ib analyze` now writes that check alongside the main tables
+    (`inflation_rates_unflagged.csv`, `precision_recall_unflagged.csv`, and
+    `robustness_unflagged` in `summary.json`, with the number of labels excluded). If the trial
+    run's final flag rate is above about 10%, the judge instructions get fixed before the main
+    run; `ib judge` prints a warning above `QUOTE_FLAG_LIMIT` (0.10), and `judge.json` records
+    the limit. Tests: `test_robustness_tables_exclude_flagged_labels`,
+    `test_cli_judge_warns_when_too_many_quotes_are_flagged`.
+20. **Free summaries stay distinguishable by their own structure.** This is accepted. It is how
+    the model writes, and removing it would alter the outputs being measured. The key RQ3
+    comparison, sectioned against extractor and pinning, is fully blind, because those three
+    share the same summary and the neutral format removes everything that differs between them.
+    The paper's limitations mention the free-summary difference.
 
 Also noted: the Anthropic provider has no guard against an empty reply cut off at `max_tokens`
 when extended thinking is enabled through `params:`. Its text extraction already ignores thinking

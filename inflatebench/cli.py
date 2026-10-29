@@ -268,6 +268,7 @@ def _judge_llm(cfg: dict[str, Any], ref: Any, usage: Any, no_batch: bool = False
 
 def _judge(args: argparse.Namespace) -> int:
     from inflatebench.judge import FINAL, LLMJudge, PanelJudge, judge_run, quote_flag_rates
+    from inflatebench.judge.run import QUOTE_FLAG_LIMIT
     from inflatebench.models import CachedLLM, Deferred, DiskCache, FakeLLM
 
     cfg = load_config(args.config)
@@ -298,10 +299,13 @@ def _judge(args: argparse.Namespace) -> int:
         "scenarios": str(scenarios),
         "judges": [{"name": j.name, "role": role, "settings": j.llm.llm.settings, "batch": j.llm.batch}
                    for j, role in zip(panel.judges, ("first", "second", "tiebreak"))],
-        "usage": usage.summary(), "quote_flags": flags})
+        "usage": usage.summary(), "quote_flags": flags, "quote_flag_limit": QUOTE_FLAG_LIMIT})
     final = flags.get(FINAL, {"rate": 0.0})
     print(f"wrote labels to {out} ({usage.calls} judge calls, {usage.cache_hits} from cache, "
           f"${usage.cost:.4f}; {final['rate']:.1%} of final quotes not found in the summary)")
+    if final["rate"] > QUOTE_FLAG_LIMIT:
+        print(f"warning: the flag rate is above {QUOTE_FLAG_LIMIT:.0%}; fix the judge instructions "
+              "before the main run", file=sys.stderr)
     return 0
 
 

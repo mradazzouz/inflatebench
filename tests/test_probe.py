@@ -239,6 +239,21 @@ def test_cli_stages_log_models_settings_dates_and_costs(tmp_path):
         assert rows and all(r["date"] and r["model"] for r in rows), log
 
 
+def test_cli_judge_warns_when_too_many_quotes_are_flagged(tmp_path, monkeypatch, capsys):
+    import inflatebench.judge as judge_pkg
+
+    cfg = pipeline_config(tmp_path)
+    main(["--config", cfg, "compact", "--run-id", "w", "--scenarios", str(PILOT), "--fake",
+          "--repeats", "1", "--limit", "1", "--condition", "free"])
+    for rate, warned in ((0.10, False), (0.11, True)):
+        monkeypatch.setattr(judge_pkg, "quote_flag_rates",
+                            lambda labels, r=rate: {"final": {"quoted": 100, "flagged": 0, "rate": r}})
+        main(["--config", cfg, "judge", "--run-id", "w", "--fake"])
+        assert ("fix the judge instructions" in capsys.readouterr().err) is warned
+    info = json.loads((tmp_path / "runs" / "w" / "judge.json").read_text())
+    assert info["quote_flag_limit"] == 0.10
+
+
 def test_cli_stages_report_missing_inputs_and_config(tmp_path):
     cfg = pipeline_config(tmp_path)
     with pytest.raises(SystemExit, match="summaries.jsonl not found"):
