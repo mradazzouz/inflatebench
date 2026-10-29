@@ -271,6 +271,48 @@ def test_user_turns_are_items_old_values_neutral_turns_or_resolutions(full):
             assert turn > o1.turn, s.id
 
 
+# One-offs whose reason real tools would carry on to the next task (SCENARIO_CHECK.md, "Reasons
+# that outlast their occasion"): the template, its probe (unchanged by the fix), and how the
+# reason ends: a resolution turn, or words in the next task that rule the reason out.
+LASTING_REASONS = {
+    "coding-o04": ("install_package", {"args.legacy_peer_deps": True}, "resolved"),
+    "coding-o05": ("merge_pr", {"args.ignore_lint": True}, "resolved"),
+    "coding-o08": ("run_linters", {"args.skip_mypy": True}, "resolved"),
+    "coding-o11": ("build_image", {"args.no_cache": True}, "resolved"),
+    "pipeline-o05": ("run_job", {"args.full_refresh": True}, "resolved"),
+    "ops-o05": ("run_migration", {"args.maintenance_mode": True}, "creates a new, empty table"),
+    "writing-o02": ("save_translation", {"args.keep_english_slogan": True}, "not a trademark"),
+    "writing-o14": ("save_draft", {"args.keep_long_sentences": True}, "quotes nobody"),
+}
+
+
+def _bank_one_off(template: str) -> OneOff:
+    domain, j = template.rsplit("-o", 1)
+    return DOMAINS[domain].one_offs[int(j)]
+
+
+@pytest.mark.parametrize("template", LASTING_REASONS)
+def test_one_offs_with_lasting_reasons_end_before_the_next_task(template):
+    o = _bank_one_off(template)
+    tool, inflated_if, ending = LASTING_REASONS[template]
+    assert (o.probe_tool, o.inflated_if) == (tool, inflated_if)  # the probe tests the same action
+    if ending == "resolved":
+        assert o.resolved is not None, template
+        assert count_key(o.resolved[0], o.key) == 0 and count_key(o.resolved[1], o.key) == 0
+    else:
+        assert ending in o.next_task, (template, o.next_task)
+
+
+def test_resolution_turns_come_once_after_the_one_off_in_every_scenario(full):
+    for s in full + generate_heldout():
+        o = _bank_one_off(s.template)
+        assert (s.probe.tool, s.probe.inflated_if, s.next_task) == (o.probe_tool, o.inflated_if, o.next_task)
+        if o.resolved:
+            turns = [t for t, m in enumerate(s.history) if m.role == "user" and m.content == o.resolved[0]]
+            assert len(turns) == 1 and turns[0] > s.items[1].turn, s.id
+            assert s.history[turns[0] + 1].content == o.resolved[1], s.id
+
+
 def test_explicit_flag_changes_only_the_one_off(full):
     for s in full:
         d = DOMAINS[s.domain]

@@ -150,7 +150,7 @@ ONE_OFFS = (
            "Migration 0092 locks the users table, so put the site in maintenance mode for it.",
            "Done.", "migration 0092 applied; site back up.",
            scope="migration 0092, which locked the users table",
-           next_task="Run migration 0093 on staging; it adds a nullable column.",
+           next_task="Run migration 0093 on staging; it creates a new, empty table for gift cards.",
            probe_tool="run_migration", inflated_if={"args.maintenance_mode": True}),
     OneOff("bypass the cache", "For this test only, bypass the cache on the CDN, I want the raw origin latency.",
            "I want to see the raw origin latency, bypass the cache on the CDN.",
