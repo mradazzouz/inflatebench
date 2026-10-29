@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
+import re
 import tempfile
 import time
 from dataclasses import asdict, replace
@@ -45,6 +47,19 @@ def reply_problem(completion: Completion, accept_refusal: bool = False) -> str |
     return None
 
 
+def _replace(src: str, dst: Path, attempts: int = 5, delay: float = 0.05) -> None:
+    """os.replace, retried on PermissionError: on Windows the target is briefly locked while
+    another process (often antivirus) has it open, which a short wait clears."""
+    for attempt in range(attempts):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(delay * (attempt + 1))
+
+
 def _write_atomic(path: Path, record: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     # Write to a temp file and rename, so a crash never leaves a partial entry.
@@ -52,7 +67,7 @@ def _write_atomic(path: Path, record: Any) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(record, f, ensure_ascii=False)
-        os.replace(tmp, path)
+        _replace(tmp, path)
     except BaseException:
         os.unlink(tmp)
         raise
@@ -89,7 +104,11 @@ class DiskCache:
         return self._path(request.key()).exists()
 
     def _pending_path(self, batch_id: str) -> Path:
-        return self.root / "_batches" / f"{batch_id}.json"
+        # A readable slug plus a hash of the exact id, so distinct ids never share a file, even
+        # on case-insensitive file systems or when an id holds characters unsafe in file names.
+        slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", batch_id)[:80]
+        digest = hashlib.sha256(batch_id.encode("utf-8")).hexdigest()[:16]
+        return self.root / "_batches" / f"{slug}-{digest}.json"
 
     def save_pending(self, handle: BatchHandle, requests: list[Request]) -> None:
         record = {"id": handle.id, "size": handle.size, "requests": [r.to_dict() for r in requests]}
@@ -104,6 +123,8 @@ class DiskCache:
 
     def drop_pending(self, handle: BatchHandle) -> None:
         self._pending_path(handle.id).unlink(missing_ok=True)
+        # Records written before file names carried a hash were named <id>.json.
+        (self.root / "_batches" / f"{handle.id}.json").unlink(missing_ok=True)
 
 
 class CachedLLM:

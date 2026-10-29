@@ -104,7 +104,17 @@ def test_tex_escapes_and_formats():
     assert assets.term_name("C(condition, Treatment('free'))[T.pinning]") == "condition: pinning"
 
 
-@pytest.mark.skipif(not shutil.which("latexmk"), reason="needs a LaTeX installation")
+def _latexmk_runs() -> bool:
+    """latexmk can be on PATH but unable to run (MiKTeX without Perl), so try it."""
+    if not shutil.which("latexmk"):
+        return False
+    try:
+        return subprocess.run(["latexmk", "-v"], capture_output=True, timeout=60).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+@pytest.mark.skipif(not _latexmk_runs(), reason="needs a working LaTeX installation with latexmk")
 def test_paper_builds(tmp_path, pilot):
     build = tmp_path / "paper"
     shutil.copytree(PAPER, build, ignore=shutil.ignore_patterns("generated", "main.pdf"))
