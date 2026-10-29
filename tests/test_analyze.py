@@ -185,6 +185,23 @@ def test_analyze_run_writes_report(tmp_path, pilot):
     assert on_disk["quote_flags"][FINAL]["rate"] == 1 / 2  # see the flagged label below
 
 
+def test_robustness_tables_exclude_flagged_labels(tmp_path, pilot):
+    s = pilot[0]
+    labels = labels_for(s, {"h1": "correct", "c1": "correct", "o1": "promoted", "s1": "correct",
+                            "r1": "correct", "r2": "correct"}, invented=1)
+    labels = [replace(l, quote_flagged=True) if l.item_id == "o1" else l for l in labels]
+    labels.append(replace(labels[0], judge="other", quote_flagged=True))  # another judge's flag
+    summary = analyze(labels, pilot, None, tmp_path / "rep", n_boot=10, figures=False)
+    main = {r["type"]: r for r in summary["inflation_rates"]}
+    robust = {r["type"]: r for r in summary["robustness_unflagged"]["inflation_rates"]}
+    assert main["promoted"]["rate"] == 1.0  # main results keep every label
+    assert robust["promoted"]["den"] == 0  # the flagged one-off is left out of the check
+    assert summary["robustness_unflagged"]["excluded_labels"] == 1
+    assert summary["robustness_unflagged"]["n_items"] == summary["n_items"] - 1
+    for name in ("inflation_rates_unflagged.csv", "precision_recall_unflagged.csv"):
+        assert (tmp_path / "rep" / name).exists()
+
+
 def test_analyze_without_probes_or_variation(tmp_path, pilot):
     labels = labels_for(pilot[0], {i.id: "correct" for i in pilot[0].items})
     summary = analyze(labels, pilot, None, tmp_path / "rep", n_boot=10, figures=False)

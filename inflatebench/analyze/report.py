@@ -98,6 +98,17 @@ def analyze(labels: Iterable[Label], scenarios: Iterable[Scenario],
                                "n_boot": n_boot, "seed": seed,
                                "inflation_rates": _records(rates),
                                "precision_recall": _records(pr)}
+    # Robustness check: the same tables without labels whose quote stayed unverified.
+    kept = [lab for lab in labels if not (lab.judge == judge and lab.quote_flagged)]
+    items_kept = m.item_frame(kept, scenarios, judge)
+    rates_kept = inflation_rates(items_kept, n_boot, seed)
+    pr_kept = precision_recall(items_kept, m.invented_frame(kept, judge), n_boot, seed)
+    rates_kept.to_csv(out / "inflation_rates_unflagged.csv", index=False)
+    pr_kept.to_csv(out / "precision_recall_unflagged.csv", index=False)
+    summary["robustness_unflagged"] = {"excluded_labels": len(labels) - len(kept),
+                                       "n_items": len(items_kept),
+                                       "inflation_rates": _records(rates_kept),
+                                       "precision_recall": _records(pr_kept)}
     beh = None
     if probe_df is not None and len(probe_df):
         beh = behaviour_rates(probe_df, n_boot, seed)

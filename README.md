@@ -46,7 +46,8 @@ use the same file without `--scenarios`. For a real run, fill in the model names
    as plain text under a single header, with every condition-specific header removed. Each
    quote must appear in that text (ignoring case and whitespace); a judge whose quotes do not
    is asked once to fix them, and quotes still missing are flagged (`quote_flagged`). The
-   flag rate per judge is printed and stored in `judge.json` and the report.
+   flag rate per judge is printed and stored in `judge.json` and the report; above 10% `ib judge`
+   warns that the judge instructions need work before the main run.
 4. **probe** gives the agent model (`agent:` in `config.yaml`, or `--model KEY`) the compacted
    context, the scenario's next task and mock tools for its domain, then checks the
    tool-call arguments against the scenario's `probe.inflated_if`. The check is
@@ -57,7 +58,9 @@ use the same file without `--scenarios`. For a real run, fill in the model names
    position; a random intercept per scenario), `summary.json` and figures. `behaviour.csv` gives
    the behavioural rate over all probes (`rate`), how often the agent called the probe tool at
    all (`called_rate`), and the behavioural rate among probes that called it
-   (`rate_when_called`). Options: `--judge NAME`,
+   (`rate_when_called`). Flagged labels count in every main table; a robustness check without
+   them is written next to them (`inflation_rates_unflagged.csv`,
+   `precision_recall_unflagged.csv`, `robustness_unflagged` in `summary.json`). Options: `--judge NAME`,
    `--n-boot N`, `--no-figures`.
 
 Each stage logs its model calls (`calls.jsonl`, `judge_calls.jsonl`, `probe_calls.jsonl`)
