@@ -22,10 +22,9 @@ def test_fake_llm_callable_and_batch():
     assert [results[r.key()].text for r in reqs] == ["X", "Y"]
 
 
-@pytest.mark.parametrize("command", ["generate", "judge", "probe", "analyze"])
+@pytest.mark.parametrize("command", ["judge", "probe", "analyze"])
 def test_cli_subcommands_are_stubs(command, capsys):
-    argv = [command] if command == "generate" else [command, "--run-id", "r1"]
-    assert main(argv) == 1
+    assert main([command, "--run-id", "r1"]) == 1
     assert "not implemented" in capsys.readouterr().err
 
 

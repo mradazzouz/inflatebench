@@ -16,9 +16,36 @@ from inflatebench.schema import Message, Scenario, Summary, read_jsonl, write_js
 if TYPE_CHECKING:
     from inflatebench.models import LLM, Completion
 
+
 def load_config(path: str | Path) -> dict[str, Any]:
     with Path(path).open(encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
+
+
+def _paraphrase_llm(cfg: dict[str, Any], key: str) -> LLM:
+    from inflatebench.models.factory import from_config
+
+    try:
+        return from_config(cfg, key)
+    except (KeyError, ValueError, RuntimeError) as e:  # unknown key, placeholder name, missing SDK or key
+        raise SystemExit(f"ib generate: {e}") from None
+
+
+def _generate(args: argparse.Namespace) -> int:
+    from inflatebench.generate import Paraphraser, generate, load_pilot
+
+    cfg = load_config(args.config)
+    paths = cfg.get("paths", {})
+    if args.pilot:
+        out = args.out or paths.get("pilot", "data/pilot.jsonl")
+        scenarios = load_pilot(args.pilot_md)
+    else:
+        out = args.out or paths.get("scenarios", "data/scenarios.jsonl")
+        llm = _paraphrase_llm(cfg, args.paraphrase_model) if args.paraphrase_model else None
+        scenarios = generate(args.n, args.seed, Paraphraser(llm))
+    write_jsonl(out, scenarios)
+    print(f"wrote {len(scenarios)} scenarios to {out}")
+    return 0
 
 
 def _stub(args: argparse.Namespace) -> int:
@@ -140,7 +167,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("generate", help="write data/scenarios.jsonl")
     p.add_argument("--out", default=None, help="output path (default from config)")
-    p.add_argument("--seed", type=int, default=None)
+    p.add_argument("--n", type=int, default=240, help="number of scenarios, spread over the domains")
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--paraphrase-model", default=None,
+                   help="model key from config used to paraphrase items (default: no paraphrasing)")
+    p.add_argument("--pilot", action="store_true", help="port pilot.md to data/pilot.jsonl instead")
+    p.add_argument("--pilot-md", default="pilot.md", help="path to pilot.md")
 
     p = sub.add_parser("compact", help="write runs/<run_id>/summaries.jsonl")
     p.add_argument("--run-id", required=True)
@@ -162,7 +194,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("analyze", help="write runs/<run_id>/report/")
     p.add_argument("--run-id", required=True)
 
-    for name in ("generate", "compact", "judge", "probe", "analyze"):
+    sub.choices["generate"].set_defaults(func=_generate)
+    for name in ("compact", "judge", "probe", "analyze"):
         sub.choices[name].set_defaults(func=_stub)
     sub.choices["compact"].set_defaults(func=_compact)
     return parser
