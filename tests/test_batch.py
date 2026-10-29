@@ -24,16 +24,19 @@ class RecordingFake(FakeLLM):
     def __init__(self, *args, log=None, crash_on_batch=None, **kw):
         super().__init__(*args, **kw)
         self.submitted: list[list[str]] = []
+        self.handles: list[str] = []
         self.log = log if log is not None else []
         self.crash_on_batch = crash_on_batch  # batch index whose collection raises once
 
     def submit_batch(self, requests):
         self.submitted.append([r.messages[0].content for r in requests])
         self.log.append((self.model, len(requests)))
-        return super().submit_batch(requests)
+        handle = super().submit_batch(requests)
+        self.handles.append(handle.id)
+        return handle
 
     def batch_results(self, handle):
-        if self.crash_on_batch is not None and handle.id == f"fake-batch-{self.crash_on_batch}":
+        if self.crash_on_batch is not None and handle.id in self.handles[self.crash_on_batch:][:1]:
             self.crash_on_batch = None
             raise KeyboardInterrupt("crash while waiting for the batch")
         return super().batch_results(handle)

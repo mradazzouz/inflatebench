@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import itertools
+import uuid
 from dataclasses import replace
 from typing import Any, Callable
 
@@ -10,6 +12,10 @@ from inflatebench.models.chat import now
 from inflatebench.schema import Message
 
 Responder = Callable[[list[Message]], str]
+
+# Batch ids must differ across FakeLLM instances, models and calls: parallel judges each
+# record their pending batch under its id, and a shared id would make them write one file.
+_batch_ids = itertools.count()
 
 
 class FakeLLM:
@@ -43,7 +49,8 @@ class FakeLLM:
         )
 
     def submit_batch(self, requests: list[Request]) -> BatchHandle:
-        handle = BatchHandle(id=f"fake-batch-{len(self.batches)}", size=len(requests))
+        handle = BatchHandle(id=f"fake-batch-{self.model}-{next(_batch_ids)}-{uuid.uuid4().hex[:8]}",
+                             size=len(requests))
         self.batches[handle.id] = {r.key(): replace(self.complete(r.messages, **r.params), batch=True)
                                    for r in requests}
         return handle
