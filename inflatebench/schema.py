@@ -23,6 +23,7 @@ LABELS = (
 INVENTED = "invented"
 LENGTHS = ("short", "medium", "long")
 CUES = ("explicit", "implicit")
+POSITIONS = ("early", "middle", "late")  # where in the history the one-off sits
 
 T = TypeVar("T", bound="Record")
 
@@ -93,10 +94,13 @@ class Scenario(Record):
     history: list[Message]
     next_task: str
     probe: Probe
+    position: str | None = None  # of the one-off; None in files written before it was stored
 
     def __post_init__(self) -> None:
         _check(self.length, LENGTHS, "length")
         _check(self.cue, CUES, "cue")
+        if self.position is not None:
+            _check(self.position, POSITIONS, "position")
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Scenario:
@@ -141,6 +145,8 @@ class Label(Record):
     item_id: str | None
     label: str
     quote: str = ""
+    # The quote is still not in the summary after the judge was asked once to fix it.
+    quote_flagged: bool = False
 
     def __post_init__(self) -> None:
         if self.item_id is None:

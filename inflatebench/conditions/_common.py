@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from functools import cache
 from importlib.resources import files
 from typing import TYPE_CHECKING
@@ -47,3 +48,24 @@ def bullets(header: str, items: list[str]) -> str:
 
 def summary_message(text: str) -> Message:
     return Message("system", f"{prompt('summary_header')}\n\n{text}")
+
+
+# What the judge and human annotators see in place of a condition's own headers.
+NEUTRAL_HEADER = "Context carried over from the earlier conversation:"
+CONDITION_HEADERS = ("summary_header", "extracted_header", "pinned_header")
+
+
+def neutral_context(messages: list[Message]) -> str:
+    """One compacted context as plain text under a single neutral header.
+
+    The summary, an appended constraint list and a pinned block are merged in order, and every
+    header a condition adds is dropped, so the text does not say which condition produced it.
+    """
+    headers = {prompt(h) for h in CONDITION_HEADERS}
+    parts = []
+    for m in messages:
+        text = "\n".join(line for line in m.content.splitlines() if line.strip() not in headers)
+        text = re.sub(r"\n{3,}", "\n\n", text).strip()
+        if text:
+            parts.append(text)
+    return "\n\n".join([NEUTRAL_HEADER] + parts)

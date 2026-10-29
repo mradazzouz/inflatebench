@@ -4,7 +4,8 @@ An independent end-to-end review of the repository as of commit `0b5789b`. I rea
 module, checked the data, and ran the whole pipeline offline. This file lists every issue
 found, what was fixed (each fix has a test), and what is left for a human decision.
 
-Test suite: 154 tests passed before the audit and 166 pass after it (`pytest`, no API keys).
+Test suite: 154 tests passed before the audit, 166 after the first round of fixes, and 178 after
+the follow-up changes (`pytest`, no API keys).
 
 ## Summary
 
@@ -16,7 +17,14 @@ Test suite: 154 tests passed before the audit and 166 pass after it (`pytest`, n
 | 4 | Reproducibility | Stage runs did not record provider settings, run date or spend; judge and probe recorded nothing | Fixed |
 | 5 | Reproducibility | Fake-provider call logs had empty `date` | Fixed |
 | 6 | Providers | No per-model extra request parameters; reasoning output not handled | Fixed |
-| 7-18 | Various | Design questions and weaker spots | For a human decision |
+| 7 | Judge | Condition headers visible to the judge | Resolved: neutral format (follow-up A) |
+| 8 | Data | Pilot B and E labelled implicit but state their scope | Resolved: relabelled (follow-up B) |
+| 10 | Design | Sectioned, extractor and pinning share one summary | Documented as a paired design (follow-up G) |
+| 11 | Analysis | One-off position not stored or analysed | Resolved (follow-up D) |
+| 12 | Probes | Weak pilot probes | Mitigated: rate among probes that called the tool (follow-up F) |
+| 14 | Data | No held-out set | Resolved: `ib generate --heldout` (follow-up C) |
+| 17 | Judge | Judge quotes not verified | Resolved: checked, re-asked once, flagged (follow-up E) |
+| 9, 13, 15, 16, 18 | Various | Design questions and weaker spots | For a human decision |
 
 ## 1. Research correctness
 
@@ -180,45 +188,84 @@ Tests: `test_openai_compatible_keeps_only_the_final_answer`,
 environment, so the request shape is tested against a fake transport only. Check one real call
 (and the price entry) before a run.
 
+## Follow-up changes
+
+These were made at the maintainer's request after the first audit round. Each has a test.
+
+**A. Neutral format for judging (item 7).** `conditions.neutral_context` turns a compacted
+context into plain text under one header, "Context carried over from the earlier
+conversation:". It merges the summary, the extractor's list and the pinned block in order and
+drops every header a condition adds ("Summary of the earlier conversation:", "User
+constraints:", "Pinned user constraints, quoted verbatim:"). The judges and the human annotation
+sample both see this text; the agent in `ib probe` still sees each condition's own context.
+Tests: `test_judge_sees_one_neutral_format_whatever_the_condition`, and the neutral header in
+`test_annotation_sample_is_blind_and_round_trips`. What remains is the model-written content:
+a sectioned summary still has its `## Goal ...` headings and a free summary does not, so free
+can still be told from the sectioned-based conditions by its structure, and a constraint list
+still shows as bullets after the summary. Removing that would mean rewriting model output.
+
+**B. Pilot cues (item 8).** pilot-B and pilot-E are now `explicit` (`generate/pilot.py`,
+`EXPLICIT_ROUND_2`); pilot-C stays `implicit` because "the only slot they have" is not a scope
+word. `data/pilot.jsonl` is regenerated. The SPEC.md example record now has `"cue":
+"explicit"`, which matches its sentence "restart it with --force this time", and shows the new
+`position` field. Tests: `test_pilot_cues_follow_the_scope_words`,
+`test_spec_example_cue_matches_its_sentence`.
+
+**C. Held-out set (item 14).** `ib generate --heldout` writes 40 scenarios to
+`data/heldout.jsonl` (`paths.heldout`, gitignored). They use their own base seed (1000 unless
+`--seed` is given), so they never repeat a main-set history, and ids prefixed `heldout-`.
+The set has 8 per domain with each of the domain's one-offs once, cue 20/20 overall and 4/4 per
+domain, and lengths and positions 13 or 14 each. Tests:
+`test_heldout_set_is_balanced_reproducible_and_separate`, `test_cli_generate_heldout`.
+
+**D. Position (item 11).** `Scenario.position` (early, middle or late) is stored by the
+generator and the pilot port, and `validate` checks it against where the one-off actually sits.
+Files written before the field existed still load: analysis computes the position from the
+history. The regression now has fixed effects for condition, model, cue, length and position
+(reference `early`); SPEC.md's regression sentence is updated to match. Tests:
+`test_position_is_stored_and_validated`, `test_position_is_optional_and_checked`,
+`test_position_comes_from_the_scenario_or_its_history`, and the position term in
+`test_mixed_logit_finds_condition_effect`.
+
+**E. Judge quotes (item 17).** After a judge reply parses, every non-empty item quote and every
+invented-rule quote must appear in the judged text, comparing in lower case with whitespace
+collapsed. If any is missing, the judge is shown those quotes and asked once to reply again.
+Quotes still missing are kept but flagged (`Label.quote_flagged`), and final labels carry the
+flag of the judge they came from. `ib judge` prints the final flag rate and stores per-judge
+rates (quoted labels, flagged, rate) in `judge.json`. The report stores them under `quote_flags`
+in `summary.json`. Flagged labels still count in the metrics. Tests:
+`test_quotes_are_checked_reasked_once_then_flagged`, `test_panel_final_labels_keep_quote_flags`,
+and the flag rates in `test_analyze_run_writes_report` and
+`test_cli_stages_log_models_settings_dates_and_costs`.
+
+**F. Probe calls (item 12).** `behaviour.csv` and `summary.json` now report, per condition and
+model with bootstrap intervals: the behavioural inflation rate over all probes (`rate`), how
+often the probe tool was called (`called_rate`), and the behavioural rate among probes that
+called it (`rate_when_called`). Test: `test_behaviour_reports_probe_calls_and_rate_when_called`.
+
+**G. Paired design (item 10).** README.md has a "Design notes" section that explains that
+sectioned, extractor and pinning share one sectioned summary per repeat and differ only in what
+is appended. Test: `test_sectioned_extractor_and_pinning_share_one_summary_per_repeat` checks
+the note and the behaviour it describes.
+
+I re-ran generate, compact, judge, probe and analyze with `--fake` on `data/pilot.jsonl` and on
+10 generated scenarios after these changes, and all files are complete and consistent as in
+section 4. Per item, `items.csv` now carries the scenario's position. The data check finds no
+key leaks, and the only implicit pilot item that matches a marker is pilot-C's "only", which is
+intended.
+
 ## Left for a human decision
 
-7. **The judge can infer the condition from headers.** Summaries keep the condition's headers:
-   extractor adds "User constraints:" and pinning adds "Pinned user constraints, quoted
-   verbatim:". No condition name reaches the judge, but these headers identify the two fix
-   conditions, and "quoted verbatim" may nudge the judge toward `correct`. The agent sees the
-   same text, so removing them changes what is judged. Options: keep them; or replace them with
-   one neutral header for the judge only.
-8. **Three pilot "implicit" one-offs contain explicit scope words.** pilot-B "restart it with
-   --force *this time*", pilot-C "it's the *only* slot they have", pilot-E "*For this run*, drop
-   the rows...". They are verbatim from pilot.md round 2, and SPEC.md's own example labels
-   "--force this time" as implicit. So either the pilot `cue` labels for B and E should be
-   `explicit`, or the spec example and pilot.md should change. The pilot-C hit is a false
-   positive of the `only` marker. I changed nothing.
 9. **Precision and recall boundary cases.** A `stale` changed value counts as preserved in
    recall (it is not `lost`) and as spurious in precision. A one-off kept correctly with its
    scope counts in neither. Both are defensible; the paper should state them.
-10. **Sectioned, extractor and pinning share one summary sample.** Extractor and pinning call the
-    same sectioned prompt on the same history under the same cache label, so within a repeat
-    their summary text is the sectioned condition's text, served from the cache. The comparison
-    is paired, which isolates the effect of the appended list, but the three conditions are not
-    independent samples. Decide whether that is intended and say so in the paper. (The
-    `--dry-run` estimate counts each shared call once per condition, so it overestimates. It is labelled an upper
-    bound.)
-11. **Position (RQ4) is not analysed.** The one-off's position is balanced in generation but not
-    stored in the scenario record (it can be recomputed with `generate.validate.position`) and is
-    not in the regression. The spec's regression lists only condition, model, cue and length, so
-    adding position is a design change.
 12. **Weak pilot probes.** pilot-A (`delete_files` with `skip_paths` during "Add email
     confirmations") and pilot-16 (`apply_changes` during "Find customers with invalid email
-    addresses") rarely lead the agent to call the probe tool, so they will mostly read as not
-    inflated. `probes.jsonl` records `probe_called`, so the rate among probes that called the
-    tool can be reported too.
+    addresses") rarely lead the agent to call the probe tool. Follow-up F reports the rate among
+    probes that called it, but the probes themselves are unchanged.
 13. **Rejected tool calls count.** A call to the probe tool that the mock rejects (for example
     one with an unknown extra argument) still counts as inflated if its arguments match. That
     reads as intent to act. Decide whether only accepted calls should count.
-14. **The held-out set is not implemented.** SPEC.md keeps 40 private held-out scenarios, and
-    `paths.heldout` is configured, but nothing selects or writes them. Choose the 40 (for
-    example 8 per domain, balanced over factors) before the main run.
 15. **Bootstrap on the strong-model subset.** `ratio_ci` draws over the union of scenarios in a
     table. A model run on the 60-scenario subset gets a random number of its own scenarios per
     replicate, which slightly widens its intervals. To match the spec exactly, bootstrap each
@@ -226,11 +273,17 @@ environment, so the request shape is tested against a fake transport only. Check
 16. **Paraphrased generation is not logged.** `ib generate` records nothing about `--seed`,
     `--n` or `--paraphrase-model`, and with paraphrasing the scenarios depend on that model's
     cached replies. Keep the command line and the cache with the released data, or add a sidecar.
-17. **Judge quotes are not verified.** `judge.parse.quote_in_summary` exists but is unused. A
-    hallucinated quote is accepted. Consider flagging labels whose quote is not in the summary.
 18. **Stale test fixture.** `tests/fixtures/scenarios.jsonl` differs from `data/pilot.jsonl`:
-    changed values have no scope and the preference id is `s1`, not `p1`. That is how bug 1
-    stayed hidden. Consider regenerating it from `data/pilot.jsonl`.
+    changed values have no scope, the preference id is `s1`, not `p1`, and there is no `position`.
+    That is how bug 1 stayed hidden. Consider regenerating it from `data/pilot.jsonl`.
+
+New with the follow-up changes:
+
+19. **Flagged quotes still count.** Labels whose quote stays unverified are reported but not
+    excluded. Decide whether to drop them, send them to the tie-break judge, or keep them, once
+    the flag rate on real judges is known.
+20. **Free versus sectioned stays visible.** See follow-up A: the model-written structure still
+    separates free summaries from the sectioned-based conditions.
 
 Also noted: the Anthropic provider has no guard against an empty reply cut off at `max_tokens`
 when extended thinking is enabled through `params:`. Its text extraction already ignores thinking

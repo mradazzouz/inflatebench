@@ -67,6 +67,6 @@ repeats: 3
 paths:
   scenarios: data/scenarios.jsonl
   pilot: data/pilot.jsonl
-  heldout: data/heldout
+  heldout: data/heldout.jsonl   # private held-out set (ib generate --heldout); gitignored
   runs: runs
   cache: .cache/requests

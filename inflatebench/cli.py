@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
-from inflatebench.schema import Message, Scenario, Summary, read_jsonl, write_jsonl
+from inflatebench.schema import Label, Message, Scenario, Summary, read_jsonl, write_jsonl
 
 if TYPE_CHECKING:
     from inflatebench.models import LLM, Completion
@@ -33,17 +33,24 @@ def _paraphrase_llm(cfg: dict[str, Any], key: str) -> LLM:
 
 
 def _generate(args: argparse.Namespace) -> int:
-    from inflatebench.generate import Paraphraser, generate, load_pilot
+    from inflatebench.generate import HELDOUT_SEED, Paraphraser, generate, generate_heldout, load_pilot
 
     cfg = load_config(args.config)
     paths = cfg.get("paths", {})
+    if args.pilot and args.heldout:
+        raise SystemExit("ib generate: use --pilot or --heldout, not both")
     if args.pilot:
         out = args.out or paths.get("pilot", "data/pilot.jsonl")
         scenarios = load_pilot(args.pilot_md)
     else:
-        out = args.out or paths.get("scenarios", "data/scenarios.jsonl")
         llm = _paraphrase_llm(cfg, args.paraphrase_model) if args.paraphrase_model else None
-        scenarios = generate(args.n, args.seed, Paraphraser(llm))
+        if args.heldout:
+            out = args.out or paths.get("heldout", "data/heldout.jsonl")
+            seed = HELDOUT_SEED if args.seed is None else args.seed
+            scenarios = generate_heldout(seed, Paraphraser(llm))
+        else:
+            out = args.out or paths.get("scenarios", "data/scenarios.jsonl")
+            scenarios = generate(args.n, 0 if args.seed is None else args.seed, Paraphraser(llm))
     write_jsonl(out, scenarios)
     print(f"wrote {len(scenarios)} scenarios to {out}")
     return 0
@@ -260,7 +267,7 @@ def _judge_llm(cfg: dict[str, Any], ref: Any, usage: Any, no_batch: bool = False
 
 
 def _judge(args: argparse.Namespace) -> int:
-    from inflatebench.judge import LLMJudge, PanelJudge, judge_run
+    from inflatebench.judge import FINAL, LLMJudge, PanelJudge, judge_run, quote_flag_rates
     from inflatebench.models import CachedLLM, Deferred, DiskCache, FakeLLM
 
     cfg = load_config(args.config)
@@ -286,13 +293,15 @@ def _judge(args: argparse.Namespace) -> int:
     except ValueError as e:
         raise SystemExit(f"ib judge: {e}") from None
     out = judge_run(panel, scenarios, run_dir)
+    flags = quote_flag_rates(read_jsonl(out, Label))
     _stage_info(run_dir / "judge.json", {
         "scenarios": str(scenarios),
         "judges": [{"name": j.name, "role": role, "settings": j.llm.llm.settings, "batch": j.llm.batch}
                    for j, role in zip(panel.judges, ("first", "second", "tiebreak"))],
-        "usage": usage.summary()})
+        "usage": usage.summary(), "quote_flags": flags})
+    final = flags.get(FINAL, {"rate": 0.0})
     print(f"wrote labels to {out} ({usage.calls} judge calls, {usage.cache_hits} from cache, "
-          f"${usage.cost:.4f})")
+          f"${usage.cost:.4f}; {final['rate']:.1%} of final quotes not found in the summary)")
     return 0
 
 
@@ -346,10 +355,13 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("generate", help="write data/scenarios.jsonl")
     p.add_argument("--out", default=None, help="output path (default from config)")
     p.add_argument("--n", type=int, default=240, help="number of scenarios, spread over the domains")
-    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--seed", type=int, default=None,
+                   help="base seed (default 0; for --heldout, its own default 1000)")
     p.add_argument("--paraphrase-model", default=None,
                    help="model key from config used to paraphrase items (default: no paraphrasing)")
     p.add_argument("--pilot", action="store_true", help="port pilot.md to data/pilot.jsonl instead")
+    p.add_argument("--heldout", action="store_true",
+                   help="write the 40 balanced held-out scenarios to data/heldout.jsonl instead")
     p.add_argument("--pilot-md", default="pilot.md", help="path to pilot.md")
 
     p = sub.add_parser("compact", help="write runs/<run_id>/summaries.jsonl")

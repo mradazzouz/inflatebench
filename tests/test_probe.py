@@ -229,6 +229,8 @@ def test_cli_stages_log_models_settings_dates_and_costs(tmp_path):
     assert [j["role"] for j in judge["judges"]] == ["first", "second", "tiebreak"]
     assert all(j["settings"]["provider"] == "fake" for j in judge["judges"])
     assert judge["date"] and judge["usage"]["calls"] == 4
+    # The fake judge quotes only text it finds in the summary, so nothing is flagged.
+    assert judge["quote_flags"]["final"] == {"quoted": 0, "flagged": 0, "rate": 0.0}
     probe = json.loads((run / "probe.json").read_text())
     assert probe["agent"] == "fake-agent" and probe["max_steps"] == 3 and probe["date"]
     assert probe["settings"]["model"] == "fake-agent" and "cost" in probe["usage"]
