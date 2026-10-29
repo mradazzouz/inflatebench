@@ -43,7 +43,7 @@ class UsageLog:
             for f in TOKEN_FIELDS:
                 self.tokens[f] += getattr(completion, f)
             self.cost += completion.cost
-        entry = {k: v for k, v in asdict(completion).items() if k != "text"} | {"key": key} | extra
+        entry = {k: v for k, v in asdict(completion).items() if k not in ("text", "thinking")} | {"key": key} | extra
         log.info(
             "%s in=%d out=%d cache_w=%d cache_r=%d $%.5f%s",
             completion.model,

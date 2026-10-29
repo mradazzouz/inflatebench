@@ -19,6 +19,32 @@ from inflatebench.models.retry import retry
 from inflatebench.schema import Message
 
 DEFAULT_MAX_TOKENS = 4096
+# The SDK refuses a non-streaming call it expects to run past 10 minutes: max_tokens above
+# 21,333 (an hour per 128,000 tokens), or above a lower limit it keeps for some models.
+NONSTREAMING_MAX_TOKENS = 21_333
+
+
+def needs_streaming(model: str, max_tokens: int) -> bool:
+    """Whether the SDK requires a streaming call for this model and max_tokens."""
+    try:
+        from anthropic._constants import MODEL_NONSTREAMING_TOKENS  # private, so optional
+    except ImportError:
+        MODEL_NONSTREAMING_TOKENS = {}  # noqa: N806
+    limit = min(NONSTREAMING_MAX_TOKENS, MODEL_NONSTREAMING_TOKENS.get(model) or NONSTREAMING_MAX_TOKENS)
+    return max_tokens > limit
+
+
+def thinking_text(content: list[Any]) -> str:
+    """Thinking blocks, kept for inspecting replies cut off at max_tokens. Empty when the model
+    returns them with display "omitted" (the default on current models)."""
+    parts = []
+    for b in content:
+        kind = getattr(b, "type", "")
+        if kind == "thinking" and b.thinking:
+            parts.append(b.thinking)
+        elif kind == "redacted_thinking":
+            parts.append("[redacted thinking]")
+    return "\n\n".join(parts)
 
 
 def make_client(api_key_env: str = "ANTHROPIC_API_KEY") -> Any:
@@ -102,12 +128,20 @@ class AnthropicLLM:
             date=now(),
             stop_reason=msg.stop_reason or "",
             batch=batch,
+            thinking=thinking_text(msg.content),
             **tokens,
         )
 
     def complete(self, messages: list[Message], **kw: Any) -> Completion:
         params = self.params(messages, kw)
+        if needs_streaming(self.model, params["max_tokens"]):
+            return self._completion(self._retry(lambda: self._stream(params)))
         return self._completion(self._retry(lambda: self.client.messages.create(**params)))
+
+    def _stream(self, params: dict[str, Any]) -> Any:
+        """The final message of a streamed call: the same Message a non-streaming call returns."""
+        with self.client.messages.stream(**params) as stream:
+            return stream.get_final_message()
 
     def submit_batch(self, requests: list[Request]) -> BatchHandle:
         """Submit one batch; each entry's custom_id is its request hash (64 hex chars).

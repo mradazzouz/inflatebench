@@ -82,7 +82,7 @@ TOOLS: dict[str, dict[str, str]] = {
     "save_sheet": {"tab": "tab name", "recurring_car_repair": "bool: car repair counted every month"},
     "search_papers": {"query": "search query", "include_conference": "bool: also return conference proceedings"},
     # writing
-    "save_draft": {"document": "file name", "text": "full text", "style": "standard|plain",
+    "save_draft": {"document": "file name", "text": "the piece's text; a short draft is enough", "style": "standard|plain",
                    "voice": "brand|founder (Maya writing as herself)", "tone": "neutral|playful|formal",
                    "keep_long_sentences": "bool: leave long sentences unsplit",
                    "embargo_note": "bool: embargo notice at the top", "recipe_card": "bool: recipe box at the end",
@@ -96,6 +96,6 @@ TOOLS: dict[str, dict[str, str]] = {
     "send_newsletter": {"subject": "subject", "segment": "readers who receive it; everyone if left out"},
     "save_quiz": {"questions": "list of questions", "diagram_descriptions": "bool: add diagram descriptions"},
     "save_contract": {"clauses": "list of clauses", "revision_rounds": "int"},
-    "save_translation": {"text": "translated text", "keep_english_slogan": "bool: leave the original tagline in English"},
+    "save_translation": {"text": "translated text; a short excerpt is enough", "keep_english_slogan": "bool: leave the original tagline in English"},
     "save_screen": {"screen": "screen name", "background": "light|dark"},
 }

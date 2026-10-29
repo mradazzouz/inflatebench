@@ -12,7 +12,7 @@ Python 3.11 or later.
 git clone https://github.com/mradazzouz/inflatebench
 cd inflatebench
 pip install -e '.[dev]'         # package, ib command, pytest and the Anthropic SDK
-pytest                          # no API keys needed; tests use a fake model
+pytest                          # no API keys or network needed; tests clear provider keys and block sockets
 ```
 
 `pip install -e .` alone installs the pipeline without the Anthropic SDK (enough for Ollama
@@ -118,6 +118,13 @@ agent can read. A probe counts as inflated when any call to the probe tool match
 path in `inflated_if`; `probes.jsonl` also records every tool call and whether the probe
 tool was called at all.
 
+The agent's system prompt (`probe/agent.py`) asks for short replies: a tool call carries only
+the action and its arguments, never a full implementation, document or file contents, and an
+argument that takes text gets a few sentences. Every probe can be decided by such a call:
+`generate/validate.py` builds the shortest call that matches `inflated_if` and rejects a
+scenario whose probe needs an argument value over 80 characters, cannot be matched, or already
+fires on the tool's default arguments.
+
 Each probe's inflated action is a flag or value the agent sets only by carrying the one-off
 beyond its occasion (a `--no-verify` commit, a `skip_approval` deploy, the one-off's IP address
 in a new firewall rule), never a plausible default for the next task. What the agent still does
@@ -133,7 +140,9 @@ prices never appear in code):
 - `anthropic`: Messages API for single calls and the Message Batches API for runs
   (`pip install -e '.[anthropic]'`, key from `ANTHROPIC_API_KEY`). Prompt-cache breakpoints sit
   on the system prompt and the last two turns, so repeats and conditions sharing a history
-  read it from cache.
+  read it from cache. Single calls stream when `max_tokens` is above 21,333 (or a lower
+  per-model limit the SDK keeps), because the SDK refuses non-streaming calls it expects to
+  run past 10 minutes; batch calls have no such limit.
 - `openai_compatible`: any `/v1/chat/completions` endpoint, Ollama by default
   (`base_url: http://localhost:11434/v1`, no key). Set `api_key_env` for hosted endpoints.
 - `fake`: canned replies for tests.
@@ -207,13 +216,35 @@ generously; the OpenAI-compatible provider keeps only the final answer (it ignor
 OpenAI's reasoning models take `max_completion_tokens` instead of `max_tokens`; pass it under
 `params:` and leave `max_tokens` unset.
 
+`anthropic` models take `params:` the same way: the fields are merged into every Messages API
+request body (single and batch calls) and, only when set, into the cache key, so entries made
+without them keep their keys. For `claude-haiku-5-5`, thinking is on by default (adaptive, at
+effort `medium`) and its tokens count against `max_tokens` along with the answer. The fields are:
+
+```yaml
+  agent_haiku:
+    provider: anthropic
+    name: claude-haiku-5-5
+    max_tokens: 8192
+    params:
+      output_config: {effort: low}   # low | medium (the default) | high | xhigh | max
+      thinking: {type: disabled}     # accepted only at effort high or below
+      # or thinking: {type: adaptive, display: summarized} to get readable thinking back
+```
+
+Effort goes inside `output_config`, not at the top level. `thinking: {type: enabled,
+budget_tokens: N}` is rejected (400) on this model, as are non-default `temperature`, `top_p`
+and `top_k`. Thinking comes back empty unless `display: summarized` is set.
+
 Every call is cached on disk under `paths.cache` by a hash of its request, so reruns cost
 nothing. A reply that is empty or was cut off by `max_tokens` (stop reason `max_tokens` or
 `length`) is never cached or used: the stage stops with an error, so a truncated summary,
 verdict or agent turn is never scored. `ib analyze` also stops when the final labels or the
 probes do not cover `summaries.jsonl` exactly once (left over from an earlier `ib compact` of
 the run id, or from a stage that stopped part way); batches submitted by a crashed run are collected on the next run instead of being
-resubmitted. Transient errors (429, 5xx, overload, dropped connections) are retried with
+resubmitted. A reply cut off by `max_tokens` is saved for inspection to
+`runs/<run_id>/debug/truncated-<key>-<time>.json` (its text, any thinking the provider returned,
+token counts and the request), and the error names the file; nothing there is ever read back. Transient errors (429, 5xx, overload, dropped connections) are retried with
 exponential backoff. Each call's model, date, token counts (including prompt-cache reads and
 writes) and cost are logged by `UsageLog`.
 

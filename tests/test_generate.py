@@ -508,3 +508,44 @@ def test_validator_rejects_scope_words_in_implicit_one_offs_and_rules_in_other_t
     t = Scenario.from_dict(s.to_dict())
     t.history[neutral].content = "Thanks. Always use tabs."
     assert any(f"turn {neutral}: a user turn with no planted item" in e for e in validate(t))
+
+
+# --- probes decided by short tool calls --------------------------------------------------
+
+
+def test_every_probe_fires_on_a_short_call_and_not_on_defaults(full):
+    from inflatebench.generate import generate_heldout
+    from inflatebench.generate.validate import SHORT_ARG, probe_call, probe_errors
+    from inflatebench.probe import call_inflated
+
+    pilot = list(read_jsonl(Path(__file__).parent.parent / "data" / "pilot.jsonl", Scenario))
+    for s in full + generate_heldout() + pilot:
+        assert probe_errors(s.probe) == [], s.id
+        call = probe_call(s.probe)
+        assert call_inflated(call, s.probe), s.id
+        assert len(json.dumps(call["args"], ensure_ascii=False)) <= SHORT_ARG * len(s.probe.inflated_if), s.id
+        assert not call_inflated({"tool": s.probe.tool, "args": {}}, s.probe), s.id
+
+
+def test_probe_errors_reject_probes_that_need_long_or_impossible_calls():
+    from inflatebench.generate.validate import probe_call, probe_errors
+    from inflatebench.schema import Probe
+
+    assert probe_call(Probe("save_itinerary", {"args.days.1.hotel": "Ibis", "args.days.1.day": 2})) == {
+        "tool": "save_itinerary", "args": {"days": [None, {"hotel": "Ibis", "day": 2}]}}
+    assert probe_call(Probe("open_pr", {"args.reviewers": {"contains": "Ingrid"}})) == {
+        "tool": "open_pr", "args": {"reviewers": "Ingrid"}}
+    assert probe_errors(Probe("deploy", {"args.canary": False})) == []
+
+    long = probe_errors(Probe("save_draft", {"args.text": {"contains": "a full paragraph " * 10}}))
+    assert long and "long values for ['text']" in long[0]
+    assert "negative" in probe_errors(Probe("save_itinerary", {"args.days.-1.hotel": "x"}))[0]
+    # Paths that contradict each other can never match any call.
+    conflict = Probe("save_itinerary", {"args.days.0": "x", "args.days.0.hotel": "y"})
+    assert any("no short call" in e for e in probe_errors(conflict))
+    assert any("no short call" in e for e in probe_errors(Probe("deploy", {"args.canary": {"contains": 5}})))
+
+
+def test_tool_descriptions_ask_for_short_text():
+    assert "short" in TOOLS["save_draft"]["text"] and "full text" not in TOOLS["save_draft"]["text"]
+    assert "short" in TOOLS["save_translation"]["text"]

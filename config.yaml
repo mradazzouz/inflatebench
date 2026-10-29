@@ -6,7 +6,15 @@ models:
     provider: anthropic
     name: claude-haiku-5-5
     batch: true
-    max_tokens: 8192
+    max_tokens: 8192             # thinking and answer together; above 21333 single calls stream
+    # Optional params: extra request fields sent on every call, part of the cache key only
+    # when set. claude-haiku-5-5 thinks by default (adaptive, effort medium), which counts
+    # against max_tokens. Its fields:
+    #   params:
+    #     output_config: {effort: low}   # low | medium | high | xhigh | max; not top-level
+    #     thinking: {type: disabled}     # only at effort high or below; or {type: adaptive,
+    #                                    # display: summarized} to see thinking in runs/<id>/debug
+    # budget_tokens and non-default temperature/top_p/top_k are rejected (400) on this model.
   local:         # open-weights model (GLM-5.3-Flash, MIT licence), hosted by Z.ai
     provider: openai_compatible
     name: glm-5.3-flash

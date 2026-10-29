@@ -138,7 +138,9 @@ class CachedLLM:
     of the cache key and never sent to the provider.
     """
 
-    def __init__(self, llm: LLM, cache: DiskCache, model: str, usage: UsageLog | None = None) -> None:
+    def __init__(self, llm: LLM, cache: DiskCache, model: str, usage: UsageLog | None = None,
+                 debug_dir: str | Path | None = None) -> None:
+        """`debug_dir` (runs/<run_id>/debug) receives every reply cut off at the token limit."""
         from inflatebench.models import provider_settings
         from inflatebench.models.usage import UsageLog
 
@@ -147,6 +149,7 @@ class CachedLLM:
         self.model = model
         self.settings = provider_settings(llm)
         self.usage = usage if usage is not None else UsageLog()
+        self.debug_dir = Path(debug_dir) if debug_dir else None
 
     def request(self, messages: list[Message], **kw: Any) -> Request:
         from inflatebench.models import Request
@@ -161,8 +164,22 @@ class CachedLLM:
         A request with accept_refusal=True also takes a provider refusal as an answer."""
         problem = reply_problem(completion, bool(request and request.params.get("accept_refusal")))
         if problem:
-            raise ReplyError(f"{self.model}: {problem}")
+            saved = self.save_truncated(request, completion) if request is not None else None
+            raise ReplyError(f"{self.model}: {problem}" + (f"; reply saved to {saved}" if saved else ""))
         return completion
+
+    def save_truncated(self, request: Request, completion: Completion) -> Path | None:
+        """Write a reply cut off at the token limit (text, thinking, the request) to debug_dir
+        for inspection; it is never cached. Returns the file, or None when nothing is saved."""
+        if self.debug_dir is None or completion.stop_reason not in TRUNCATED:
+            return None
+        key = request.key()
+        stamp = re.sub(r"[^0-9T]", "", completion.date or "")[:15] or "nodate"
+        path = self.debug_dir / f"truncated-{key[:16]}-{stamp}.json"
+        _write_atomic(path, {"key": key, "model": self.model, "completion": asdict(completion),
+                             "request": request.to_dict()})
+        log.warning("%s: reply cut off at the token limit; saved to %s", self.model, path)
+        return path
 
     def complete_request(self, request: Request) -> Completion:
         """complete() for a prepared request, whatever cache label (request.model) it carries."""
@@ -253,6 +270,7 @@ class CachedLLM:
                 continue
             problem = reply_problem(res, bool(r.params.get("accept_refusal")))
             if problem:
+                self.save_truncated(r, res)
                 # Paid for, but unusable; resubmitting the same request would fail the same way.
                 log.warning("batch %s: request %s: %s", handle.id, k[:12], problem)
                 if k in missing:

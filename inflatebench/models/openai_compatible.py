@@ -47,6 +47,19 @@ def answer_text(message: dict[str, Any]) -> str:
     return THINK.sub("", content, count=1)
 
 
+def reasoning_text(message: dict[str, Any]) -> str:
+    """The reasoning answer_text leaves out, kept for inspecting replies cut off at max_tokens."""
+    for field in ("reasoning_content", "reasoning", "thinking"):
+        if isinstance(message.get(field), str) and message[field]:
+            return message[field]
+    content = message.get("content") or ""
+    if isinstance(content, list):
+        return "".join(p.get("text") or "" for p in content
+                       if isinstance(p, dict) and p.get("type") not in TEXT_PARTS)
+    think = THINK.match(content)
+    return think.group(0).strip() if think else ""
+
+
 def urllib_transport(timeout: float = 600.0) -> Transport:
     def post(url: str, headers: dict[str, str], body: dict[str, Any]) -> dict[str, Any]:
         req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"), headers=headers, method="POST")
@@ -134,6 +147,7 @@ class OpenAICompatibleLLM:
             cost=self.prices.cost(self.model, **tokens),
             date=now(),
             stop_reason=choice.get("finish_reason") or "",
+            thinking=reasoning_text(choice["message"]),
             **tokens,
         )
 

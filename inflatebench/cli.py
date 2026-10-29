@@ -17,6 +17,9 @@ from inflatebench.schema import Label, Message, Scenario, Summary, read_jsonl, w
 if TYPE_CHECKING:
     from inflatebench.models import LLM, Completion
 
+# Under runs/<run_id>/: replies cut off at the token limit, saved for inspection, never cached.
+DEBUG_DIR = "debug"
+
 
 def load_config(path: str | Path) -> dict[str, Any]:
     with Path(path).open(encoding="utf-8") as f:
@@ -189,7 +192,9 @@ def _compact(args: argparse.Namespace) -> int:
     # Batch API when the model asks for it (--fake always batches, to exercise that path).
     batch = (args.fake or bool(cfg["models"][args.model].get("batch"))) and not args.no_batch
     # The repeat is part of the cache key, so repeats are fresh samples that still resume.
-    deferred = Deferred(CachedLLM(llm, DiskCache(cfg["paths"]["cache"]), model=model), batch=batch)
+    run_dir = Path(cfg["paths"]["runs"]) / args.run_id
+    deferred = Deferred(CachedLLM(llm, DiskCache(cfg["paths"]["cache"]), model=model,
+                                  debug_dir=run_dir / DEBUG_DIR), batch=batch)
     llms = [deferred.view(f"{model}#repeat{repeat}") for repeat in range(repeats)]
 
     def step() -> tuple[list[Summary], list[dict[str, Any]]]:
@@ -213,7 +218,6 @@ def _compact(args: argparse.Namespace) -> int:
     phases = run_phases(step, [deferred])
     summaries, calls = step()
 
-    run_dir = Path(cfg["paths"]["runs"]) / args.run_id
     write_jsonl(run_dir / "summaries.jsonl", summaries)
     # Later stages read the same scenarios without being told the path again.
     run_info = {"scenarios": str(path), "model": model, "conditions": [c.name for c in conditions],
@@ -255,7 +259,8 @@ def _usage(path: Path):
     return UsageLog(path)
 
 
-def _judge_llm(cfg: dict[str, Any], ref: Any, usage: Any, no_batch: bool = False) -> tuple[LLM, str]:
+def _judge_llm(cfg: dict[str, Any], ref: Any, usage: Any, no_batch: bool = False,
+               debug_dir: Path | None = None) -> tuple[LLM, str]:
     """A judge from config: a key under models:, or an inline {provider, name, ...} entry.
 
     Every judge runs in phases (models.Deferred); those with `batch: true` use the Batch API.
@@ -271,7 +276,7 @@ def _judge_llm(cfg: dict[str, Any], ref: Any, usage: Any, no_batch: bool = False
     except (KeyError, ValueError, RuntimeError) as e:
         raise SystemExit(f"ib judge: {e}") from None
     cached = CachedLLM(llm, DiskCache(cfg["paths"]["cache"]),
-                       model=f"{entry['provider']}:{entry['name']}", usage=usage)
+                       model=f"{entry['provider']}:{entry['name']}", usage=usage, debug_dir=debug_dir)
     return Deferred(cached, batch=bool(entry.get("batch")) and not no_batch), entry["name"]
 
 
@@ -296,7 +301,7 @@ def _judge(args: argparse.Namespace) -> int:
             raise SystemExit("ib judge: config.yaml needs exactly two judges and a tiebreak")
         judges = []
         for ref in refs:
-            llm, name = _judge_llm(cfg, ref, usage, args.no_batch)
+            llm, name = _judge_llm(cfg, ref, usage, args.no_batch, run_dir / DEBUG_DIR)
             judges.append(LLMJudge(name, llm))
     try:
         panel = PanelJudge(*judges)
@@ -337,7 +342,8 @@ def _probe(args: argparse.Namespace) -> int:
     else:
         llm, name = _make_llm(cfg, key, fake=False, stage="probe")
     usage = _usage(run_dir / "probe_calls.jsonl")
-    agent = CachedLLM(llm, DiskCache(cfg["paths"]["cache"]), model=f"{name}#agent", usage=usage)
+    agent = CachedLLM(llm, DiskCache(cfg["paths"]["cache"]), model=f"{name}#agent", usage=usage,
+                      debug_dir=run_dir / DEBUG_DIR)
     out = probe_run(agent, scenarios, run_dir, agent_name=name, max_steps=args.max_steps,
                     full=not args.no_full)
     _stage_info(run_dir / "probe.json", {"scenarios": str(scenarios), "agent": name,

@@ -292,7 +292,9 @@ def test_cli_stages_report_missing_inputs_and_config(tmp_path):
     # Placeholders as in an unfilled config: no judges and no agent model name.
     models = yaml.safe_load(open("config.yaml"))["models"]
     models["main"]["name"] = "CHANGE_ME"
-    cfg = pipeline_config(tmp_path, judges=["CHANGE_ME", "CHANGE_ME"], tiebreak="CHANGE_ME", models=models)
+    # The agent is set here, so the test does not depend on the agent a local config.yaml names.
+    cfg = pipeline_config(tmp_path, judges=["CHANGE_ME", "CHANGE_ME"], tiebreak="CHANGE_ME", models=models,
+                          agent="main")
     with pytest.raises(SystemExit, match="summaries.jsonl not found"):
         main(["--config", cfg, "probe", "--run-id", "none", "--fake"])
     with pytest.raises(SystemExit, match="labels.jsonl not found"):
@@ -383,3 +385,41 @@ def test_every_model_stage_accepts_no_batch(tmp_path):
     assert main(["--config", cfg, "probe", "--run-id", "nb", "--fake", "--no-batch", "--no-full"]) == 0
     assert json.loads((run / "probe.json").read_text())["batch"] is False
     assert len(list(read_jsonl(run / "probes.jsonl", ProbeResult))) == 1
+
+
+# --- short tool calls and replies cut off at max_tokens ---------------------------------------
+
+def test_agent_prompt_requires_short_minimal_tool_calls(pilot_all):
+    from inflatebench.probe import build_messages
+
+    system = build_messages(pilot_all[0], [], tools_for(pilot_all[0]))[0].content
+    assert "Keep every reply short" in system
+    assert "only the action and its arguments" in system
+    assert "Never write out full implementations, documents" in system and "file contents" in system
+
+
+def test_ib_probe_saves_a_cut_off_agent_reply_to_the_run_debug_dir(tmp_path, monkeypatch):
+    import inflatebench.models as models
+    from dataclasses import replace
+
+    from inflatebench.models.cache import ReplyError
+
+    cfg = pipeline_config(tmp_path, agent="main")
+    main(["--config", cfg, "compact", "--run-id", "r", "--scenarios", str(PILOT), "--fake",
+          "--repeats", "1", "--limit", "1", "--condition", "free"])
+
+    class Truncating(FakeLLM):
+        def complete(self, messages, **kw):
+            return replace(super().complete(messages, **kw), stop_reason="max_tokens",
+                           thinking="drafting the whole module")
+
+    monkeypatch.setattr(models, "FakeLLM", Truncating)
+    with pytest.raises(ReplyError, match="debug"):
+        main(["--config", cfg, "probe", "--run-id", "r", "--fake"])
+    run = tmp_path / "runs" / "r"
+    (saved,) = (run / "debug").glob("truncated-*.json")
+    record = json.loads(saved.read_text())
+    assert record["completion"]["thinking"] == "drafting the whole module"
+    assert record["completion"]["text"].startswith('{"tool"')
+    assert not (run / "probes.jsonl").exists()
+    assert not [p for p in (tmp_path / "cache").rglob("*.json") if record["key"] in p.name]  # never cached
