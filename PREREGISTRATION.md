@@ -160,3 +160,13 @@ These are all labelled exploratory and are not corrected for multiplicity:
 - **Domain:** differences between domains.
 - **Other conditions and items:** `keep_rules`, invented rules, and individual inflation types by condition.
 - **Pilot and held-out set:** comparison with the pilot, and any run on the held-out set.
+
+
+
+## Addendum 1 (2026-10-29), before any real-model call
+
+- Model ids: main = claude-haiku-5-5 (Anthropic API, default effort, Batch API); local = glm-5.3-flash (Z.ai API, open weights under an MIT licence, reasoning_effort low, max_tokens 16384; thinking cannot be disabled on this model); tie-break judge = claude-sonnet-5-5.
+- The "local" model is an open-weights model served by a hosted provider instead of a model on local hardware, for capacity reasons. Its role in all hypotheses is unchanged.
+- Judges: main (Claude) and local (GLM) score every summary; claude-sonnet-5-5 breaks ties.
+- The exploratory strong-model compaction subset is dropped for budget reasons (estimated cost $30). No confirmatory hypothesis uses it.
+- A small trial run on generated scenarios follows this addendum. It checks the pipeline and real costs, and is excluded from all analyses. If the measured costs exceed the budget, the number of probe repeats may be reduced; any such change will be recorded in a further addendum before the main run, and will be based only on cost, not on any results.

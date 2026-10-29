@@ -1,74 +1,47 @@
-# Model names live here, never in code. Fill in the provider model ids before a run.
+# Model names live here, never in code.
 # API keys are read only from environment variables: ANTHROPIC_API_KEY for anthropic,
-# and the variable named by api_key_env for openai_compatible (none needed for Ollama).
-# Optional per model: max_tokens, prompt_cache (anthropic, default true), cache_ttl (5m | 1h),
-# batch (anthropic: run ib compact and ib judge through the Message Batches API at half price),
-# params (extra request fields sent on every call, e.g. reasoning_effort; part of the cache key).
-# For reasoning models, max_tokens caps hidden reasoning plus the answer, so set it generously;
-# a reply cut off before any answer is an error, never an empty cached summary.
+# and the variable named by api_key_env for openai_compatible.
 models:
   main:          # cheap hosted model, run through the Batch API
     provider: anthropic
-    name: CHANGE_ME
+    name: claude-haiku-5-5
     batch: true
-  local:         # ~8B open model through Ollama
+    max_tokens: 8192
+  local:         # open-weights model (GLM-5.3-Flash, MIT licence), hosted by Z.ai
     provider: openai_compatible
-    name: llama3.1:8b
-    base_url: http://localhost:11434/v1
-  strong:        # stronger model on a 60-scenario subset, 12 per domain (generate.balanced_subset)
+    name: glm-5.3-flash
+    base_url: https://api.z.ai/api/paas/v4
+    api_key_env: ZAI_API_KEY
+    max_tokens: 16384            # room for hidden reasoning plus the summary or JSON verdict
+    params:
+      reasoning_effort: low
+  strong:        # stronger model on a 60-scenario subset, 12 per domain (exploratory)
     provider: anthropic
-    name: CHANGE_ME
+    name: claude-sonnet-5-5
     subset: 60
-  # Hosted models through the OpenAI-compatible provider. Each reads its own key from the
-  # environment variable named by api_key_env; these providers have no batch API here, so
-  # their calls are made one at a time. Uncomment and fill in a model id to use one.
-  # openai:
-  #   provider: openai_compatible
-  #   name: CHANGE_ME              # an OpenAI model id
-  #   base_url: https://api.openai.com/v1
-  #   api_key_env: OPENAI_API_KEY
-  # gemini:        # Google Gemini through its OpenAI-compatible endpoint
-  #   provider: openai_compatible
-  #   name: CHANGE_ME              # a Gemini model id
-  #   base_url: https://generativelanguage.googleapis.com/v1beta/openai
-  #   api_key_env: GEMINI_API_KEY
-  # open_hosted:   # an open-weights model on a hosted provider (Together AI shown)
-  #   provider: openai_compatible
-  #   name: CHANGE_ME              # the provider's model id, e.g. org/model-name
-  #   base_url: https://api.together.xyz/v1
-  #   api_key_env: TOGETHER_API_KEY
-  # glm:           # Z.ai GLM through its OpenAI-compatible endpoint; reasoning_content is ignored
-  #   provider: openai_compatible
-  #   name: glm-5.3-flash
-  #   base_url: https://api.z.ai/api/paas/v4
-  #   api_key_env: ZAI_API_KEY
-  #   max_tokens: 16384            # room for hidden reasoning plus the summary or JSON verdict
-  #   params:
-  #     reasoning_effort: low
+    batch: true
+    max_tokens: 8192
 
-# Judges for ib judge: two families score every summary; the third breaks ties. Each is a
-# key under models: above, or an inline entry like {provider: anthropic, name: some-model-id}.
+# Judges: two families score every summary; the third breaks ties.
 judges:
-  - CHANGE_ME
-  - CHANGE_ME
-tiebreak: CHANGE_ME
+  - main
+  - local
+tiebreak: strong
 
-agent: main      # model key that acts on each summary in ib probe (override with --model)
+agent: main      # model that acts on each summary in ib probe
 
-# USD per million tokens, keyed by model name; used for per-call cost logging and by
-# `ib compact --dry-run`. cache_write and cache_read default to 1.25x and 0.1x input,
-# batch_discount to 0.5. Models without an entry (e.g. local Ollama) cost 0.
-#   some-model-id: {input: 1.00, output: 5.00, cache_read: 0.10}
-prices: {}
+# USD per million tokens; used for cost logging and ib compact --dry-run.
+prices:
+  claude-haiku-5-5: {input: 0.10, output: 0.50, cache_read: 0.01}
+  claude-sonnet-5-5: {input: 2.00, output: 10.00, cache_read: 0.10}
+  glm-5.3-flash: {input: 0.15, output: 0.50, cache_read: 0.03}
 
-# free_limited and sectioned_noconstraints are ablations: the free summary with the sectioned
-# template's 250-word limit, and the sectioned template without its Constraints section.
 conditions: [free, sectioned, keep_rules, extractor, pinning, free_limited, sectioned_noconstraints]
 repeats: 3
 
 paths:
   scenarios: data/scenarios.jsonl
   pilot: data/pilot.jsonl
-  heldout: data/heldout.jsonl   # private held-out set (ib generate --heldout); gitignored
+  heldout: data/heldout.jsonl
   runs: runs
   cache: .cache/requests
