@@ -368,3 +368,18 @@ def test_probe_results_from_before_refusals_still_load():
     old = {"scenario_id": "s", "condition": "free", "model": "m", "repeat": 0, "tool_calls": [],
            "inflated": False, "agent": "a", "probe_called": False}
     assert ProbeResult.from_dict(old).refusal == ""
+
+
+def test_every_model_stage_accepts_no_batch(tmp_path):
+    """compact, judge and probe all take --no-batch; probe always makes single calls."""
+    from inflatebench.cli import build_parser
+
+    for stage in ("compact", "judge", "probe"):
+        assert build_parser().parse_args([stage, "--run-id", "r", "--no-batch"]).no_batch
+    cfg = pipeline_config(tmp_path)
+    run = tmp_path / "runs" / "nb"
+    main(["--config", cfg, "compact", "--run-id", "nb", "--scenarios", str(PILOT), "--fake",
+          "--repeats", "1", "--limit", "1", "--condition", "free", "--no-batch"])
+    assert main(["--config", cfg, "probe", "--run-id", "nb", "--fake", "--no-batch", "--no-full"]) == 0
+    assert json.loads((run / "probe.json").read_text())["batch"] is False
+    assert len(list(read_jsonl(run / "probes.jsonl", ProbeResult))) == 1
