@@ -1,0 +1,32 @@
+# Model names live here, never in code. Fill in the provider model ids before a run.
+models:
+  main:          # cheap hosted model, run through the Batch API
+    provider: anthropic
+    name: CHANGE_ME
+    batch: true
+  local:         # ~8B open model through Ollama
+    provider: openai_compatible
+    name: llama3.1:8b
+    base_url: http://localhost:11434/v1
+  strong:        # stronger model on the 60-scenario subset
+    provider: anthropic
+    name: CHANGE_ME
+    subset: 60
+
+judges:          # two families score every summary; the third breaks ties
+  - CHANGE_ME
+  - CHANGE_ME
+tiebreak: CHANGE_ME
+
+# USD per million tokens, keyed by model name; used by `ib compact --dry-run`.
+prices: {}
+
+conditions: [free, sectioned, keep_rules, extractor, pinning]
+repeats: 3
+
+paths:
+  scenarios: data/scenarios.jsonl
+  pilot: data/pilot.jsonl
+  heldout: data/heldout
+  runs: runs
+  cache: .cache/requests
