@@ -27,3 +27,15 @@ Estimate a run before paying for it; this makes no API calls:
 ib compact --run-id r1 --dry-run              # main model, all conditions
 ib compact --run-id r1 --dry-run --model strong --condition free
 ```
+
+## Generating scenarios
+
+```sh
+pip install -e '.[dev]'
+ib generate --n 240 --seed 0          # writes data/scenarios.jsonl
+ib generate --pilot                   # ports pilot.md to data/pilot.jsonl
+ib generate --paraphrase-model KEY    # paraphrase items with a model from config.yaml
+```
+
+Without `--paraphrase-model`, items use the curated phrase-bank text verbatim.
+The same `--seed` always gives the same scenarios.
