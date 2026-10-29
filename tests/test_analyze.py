@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -9,7 +10,7 @@ from inflatebench.analyze import analyze, analyze_run, mixed_logit, ratio_ci
 from inflatebench.analyze import metrics as m
 from inflatebench.analyze.report import inflation_rates, precision_recall
 from inflatebench.judge import FINAL
-from inflatebench.schema import INVENTED, Label, write_jsonl
+from inflatebench.schema import INVENTED, Label, Scenario, read_jsonl, write_jsonl
 
 
 def labels_for(scenario, labels, condition="free", model="x", repeat=0, invented=0):
@@ -38,6 +39,20 @@ def test_metrics_on_hand_labelled_summary(pilot):
     # Listed rules: h1 and s1 genuine; c1 stale, o1, r1 spurious; one invented -> 2 / 6.
     assert pr["rules_listed"] == 6 and pr["precision"] == pytest.approx(2 / 6)
     assert pr["recall"] == 1.0 and pr["loss_rate"] == 0.0
+
+
+def test_widened_is_not_eligible_for_changed_values():
+    # In real data c1 carries scope "replaces <old value>", which is not a scope it could widen.
+    data = list(read_jsonl(Path(__file__).parent.parent / "data" / "pilot.jsonl", Scenario))
+    s = data[0]
+    assert next(i for i in s.items if i.type == "changed_value").scope is not None
+    labels = labels_for(s, {"h1": "correct", "c1": "correct", "o1": "widened", "p1": "correct",
+                            "r1": "correct", "r2": "correct"})
+    items = m.item_frame(labels, data)
+    assert not m.eligible(items, "widened")[items["item_type"] == "changed_value"].any()
+    widened = inflation_rates(items, n_boot=20).set_index("type").loc["widened"]
+    assert (widened["num"], widened["den"], widened["rate"]) == (1, 1, 1.0)
+    assert not m.inflation_eligible(items)[items["item_type"] == "changed_value"].any()
 
 
 def test_recall_counts_lost_rules(pilot):

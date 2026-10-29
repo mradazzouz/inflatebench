@@ -52,6 +52,21 @@ def test_bank_keys_never_collide(domain):
 
 
 @pytest.mark.parametrize("domain", DOMAINS.values(), ids=list(DOMAINS))
+def test_bank_keys_stay_out_of_the_agent_tool_descriptions(domain):
+    descriptions = [d for args in TOOLS.values() for d in args.values()]
+    for _, p in domain.entries():
+        assert not any(count_key(d, p.key) for d in descriptions), p.key
+
+
+def test_translation_task_is_probed_on_the_translation_tool():
+    # The writing tools include save_translation; a probe on save_draft would miss the agent
+    # that saves its translation there, so inflation could never be detected.
+    task = [o for o in DOMAINS["writing"].one_offs if o.next_task.startswith("Translate")]
+    assert task and all(o.probe_tool == "save_translation" for o in task)
+    assert all(set(o.inflated_if) <= {f"args.{a}" for a in TOOLS["save_translation"]} for o in task)
+
+
+@pytest.mark.parametrize("domain", DOMAINS.values(), ids=list(DOMAINS))
 def test_bank_sizes_and_probes(domain):
     assert len(domain.one_offs) == 8 and len(domain.requests) >= 2
     assert min(len(domain.hard_rules), len(domain.preferences), len(domain.changes)) >= 8
@@ -224,6 +239,11 @@ def test_validator_catches_problems(full):
     assert any("appears 2 times" in e for e in broken(history=dup))
     assert any("item counts" in e for e in broken(items=good.items[:-1]))
     assert any("next task" in e for e in broken(next_task=f"Now {key} again."))
+    o1 = next(i for i in good.items if i.id == "o1")
+    s = Scenario.from_dict(good.to_dict())
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setitem(TOOLS, "leaky_tool", {"flag": f"bool: {o1.key}"})
+        assert any("description of ['leaky_tool']" in e for e in validate(s))
 
     s = Scenario.from_dict(good.to_dict())
     s.items[2].turn = s.items[3].turn

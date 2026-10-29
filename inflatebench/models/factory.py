@@ -52,6 +52,7 @@ def build_provider(entry: dict[str, Any], prices: Prices) -> LLM:
             prompt_cache=entry.get("prompt_cache", True),
             cache_ttl=entry.get("cache_ttl"),
             api_key_env=entry.get("api_key_env", "ANTHROPIC_API_KEY"),
+            params=entry.get("params"),
         )
     if provider == "openai_compatible":
         from inflatebench.models.openai_compatible import OLLAMA_BASE_URL, OpenAICompatibleLLM
@@ -62,6 +63,7 @@ def build_provider(entry: dict[str, Any], prices: Prices) -> LLM:
             api_key_env=entry.get("api_key_env"),
             prices=prices,
             max_tokens=entry.get("max_tokens"),
+            params=entry.get("params"),
         )
     from inflatebench.models.fake import FakeLLM
 

@@ -38,6 +38,10 @@ def validate(s: Scenario) -> list[str]:
             errors.append(f"{item.id}: text is not in turn {item.turn}")
         if count_key(s.next_task, item.key):
             errors.append(f"{item.id}: key {item.key!r} appears in the next task")
+        # The agent's prompt lists the mock tools; their descriptions must not hand it the phrase.
+        leaks = [t for t, args in TOOLS.items() if any(count_key(d, item.key) for d in args.values())]
+        if leaks:
+            errors.append(f"{item.id}: key {item.key!r} appears in the description of {leaks}")
 
     if s.probe.tool not in TOOLS:
         errors.append(f"probe tool {s.probe.tool!r} is not a known mock tool")

@@ -52,7 +52,8 @@ use the same file without `--scenarios`. For a real run, fill in the model names
    `--n-boot N`, `--no-figures`.
 
 Each stage logs its model calls (`calls.jsonl`, `judge_calls.jsonl`, `probe_calls.jsonl`)
-with model, date, token counts and cost. Human labels for the judge check are collected
+with model, date, token counts and cost, and records the models, provider settings, date and
+spend of the stage run in `run.json`, `judge.json` and `probe.json`. Human labels for the judge check are collected
 with `annotation/index.html`.
 
 ### The behaviour probe
@@ -119,6 +120,27 @@ models:
 Uncomment the ones you need, fill in the model ids, export the keys
 (`export OPENAI_API_KEY=...`) and use them by key, e.g. `ib compact --model gemini` or as a
 judge under `judges:`. Add their prices under `prices:` for cost logging.
+
+Any model entry can carry `params:`, extra request fields sent on every call (part of the cache
+key), and `max_tokens`. Reasoning models count hidden reasoning against `max_tokens`, so set it
+generously; the OpenAI-compatible provider keeps only the final answer (it ignores
+`reasoning_content`, `reasoning` and `thinking` fields, reasoning content parts and a leading
+`<think>` block) and raises an error rather than caching an empty reply cut off by the limit.
+`config.yaml` has a commented example for Z.ai's `glm-5.3-flash`:
+
+```yaml
+  glm:
+    provider: openai_compatible
+    name: glm-5.3-flash
+    base_url: https://api.z.ai/api/paas/v4
+    api_key_env: ZAI_API_KEY
+    max_tokens: 16384
+    params:
+      reasoning_effort: low
+```
+
+OpenAI's reasoning models take `max_completion_tokens` instead of `max_tokens`; pass it under
+`params:` and leave `max_tokens` unset.
 
 Every call is cached on disk under `paths.cache` by a hash of its request, so reruns cost
 nothing; batches submitted by a crashed run are collected on the next run instead of being
