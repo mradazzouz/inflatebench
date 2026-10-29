@@ -1,0 +1,81 @@
+\section{Results}
+\label{sec:results}
+
+Results are from run \texttt{\ibRunId} (\ibNScenarios{} scenarios, \ibNItems{} labelled items,
+judge \texttt{\ibJudge}). All rates are percentages with 95\% bootstrap intervals that resample
+one-off templates.
+
+\subsection{How often do summaries inflate instructions? (RQ1)}
+
+\begin{table}[t]
+  \centering\small
+  \gentable{inflation_rates}
+  \caption{Inflation rate by type and condition (\% of eligible items, 95\% interval).}
+  \label{tab:inflation}
+\end{table}
+
+\begin{figure}[t]
+  \centering
+  \genfigure{inflation_by_type.png}
+  \caption{Inflation rate by type and condition.}
+  \label{fig:inflation}
+\end{figure}
+
+\todo{Describe Table~\ref{tab:inflation} and Figure~\ref{fig:inflation}.}
+
+\begin{table}[t]
+  \centering\small
+  \gentable{controls}
+  \caption{Control errors and loss by condition (\%).}
+  \label{tab:controls}
+\end{table}
+
+\subsection{Does inflation change behaviour? (RQ2)}
+
+\begin{table}[t]
+  \centering\small
+  \gentable{behaviour}
+  \caption{Behavioural inflation, probe-tool call rate, refusal rate, and compaction-induced
+  behavioural inflation (condition minus full history, paired interval), in \%.}
+  \label{tab:behaviour}
+\end{table}
+
+\todo{Describe Table~\ref{tab:behaviour}.}
+
+\subsection{Do fixes trade loss for inflation? (RQ3)}
+
+\begin{table}[t]
+  \centering\small
+  \gentable{precision_recall}
+  \caption{Constraint precision, recall and loss rate by condition (\%).}
+  \label{tab:precision-recall}
+\end{table}
+
+\begin{figure}[t]
+  \centering
+  \genfigure[0.7\linewidth]{precision_recall.png}
+  \caption{Constraint precision against recall.}
+  \label{fig:precision-recall}
+\end{figure}
+
+\todo{Describe the trade-off.}
+
+\subsection{Which cues drive inflation? (RQ4)}
+
+\begin{table}[t]
+  \centering\small
+  \gentable{regression_items}
+  \caption{Mixed-effects logistic regression of item-level inflation.}
+  \label{tab:regression-items}
+\end{table}
+
+\todo{Describe cue, length and position effects.}
+
+\subsection{Robustness}
+
+\begin{table}[t]
+  \centering\small
+  \gentable{inflation_rates_unflagged}
+  \caption{Inflation rates without flagged labels (\ibExcludedFlagged{} labels excluded).}
+  \label{tab:inflation-unflagged}
+\end{table}

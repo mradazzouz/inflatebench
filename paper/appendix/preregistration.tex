@@ -1,0 +1,49 @@
+\section{Preregistration}
+\label{app:prereg}
+
+The analysis was preregistered before any real-model results existed
+(\texttt{PREREGISTRATION.md} in the repository; \todo{anonymised link and timestamp}). We
+summarise its confirmatory hypotheses and quality gates here; any deviation is reported in a
+dated subsection below.
+
+\subsection{Confirmatory hypotheses}
+Combined inflation is the primary outcome. All comparisons pool the confirmatory models, with
+model as a fixed effect.
+
+\begin{center}\small
+\begin{tabular}{lp{0.62\linewidth}l}
+\toprule
+ & Hypothesis & Direction \\
+\midrule
+H1 & \texttt{sectioned} has a higher combined inflation rate than \texttt{free}. & sectioned $>$ free \\
+H2 & The Constraints \& Preferences section drives H1: (a) \texttt{sectioned} $>$
+     \texttt{sectioned\_noconstraints} in combined inflation, and (b) \texttt{free\_limited} does
+     not differ meaningfully from \texttt{free}. & (a) greater; (b) equivalent \\
+H3 & Each of \texttt{extractor} and \texttt{pinning}, relative to \texttt{sectioned}, (a) has
+     lower loss and (b) has higher combined inflation. & (a) lower; (b) higher \\
+H4 & Implicit scope cues give more promotion of one-offs than explicit cues. & implicit $>$ explicit \\
+H5 & Compaction-induced behavioural inflation is greater than zero for \texttt{sectioned},
+     \texttt{extractor} and \texttt{pinning}. & $>0$ for each \\
+H6 & The softening rate of hard rules and the stale rate of changed values each stay below 5\%. & $<0.05$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Quality gates}
+\begin{enumerate}
+  \item \textbf{Judge--human agreement.} Two annotators label 200 (summary, item) pairs, 100
+        from each of the main and local models, stratified by item type $\times$ condition,
+        blind to condition. The overall Cohen's kappa between each human and the judge on the
+        unweighted sample must be at least 0.7; otherwise the rubric is revised and
+        re-validated on a fresh sample.
+  \item \textbf{Flag rates.} If the quote flag rate or the type flag rate exceeds 10\%, the
+        rubric is revised and gate 1 is repeated.
+  \item \textbf{Flagged labels} stay in the main results; a robustness check repeats the tables
+        without them (Table~\ref{tab:inflation-unflagged}).
+\end{enumerate}
+
+\todo{Analysis plan (tests, margins, multiplicity), exclusions and exploratory analyses, from
+sections 4, 6 and 7 of the preregistration.}
+
+\subsection{Deviations}
+\todo{None so far. List any deviation with its date and reason.}

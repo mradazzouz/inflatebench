@@ -1,0 +1,22 @@
+\section{Benchmark}
+\label{sec:benchmark}
+
+\subsection{Scenarios}
+\todo{240 scenarios, 5 domains $\times$ 48; six planted items per scenario (one one-off, one
+preference, two task requests, one hard rule, one changed value) plus 3--6 neutral user turns;
+40 private held-out scenarios.}
+
+\subsection{Factors}
+\todo{One-off templates (80, each used 3 times), scope cue (explicit/implicit), history length
+(about 1K/8K/30K tokens), position of the one-off (early/middle/late), next task.}
+
+\subsection{Generation and validation}
+\todo{Phrase banks, LLM paraphrases, validator checks.}
+
+\subsection{Labels}
+Each planted item in each summary receives one label (Appendix~\ref{app:label-guide}); each item
+type allows only some labels, and a fixed precedence order resolves cases where several apply.
+
+\subsection{Behaviour probe}
+\todo{Next task, mock tools per domain, deterministic check of tool-call arguments against
+\texttt{inflated\_if}; full-history baseline.}
