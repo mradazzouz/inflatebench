@@ -89,7 +89,12 @@ spend of the stage run in `run.json`, `judge.json` and `probe.json`. Human label
 with `annotation/index.html`. The items for it (`make_annotation_sample` in `judge/run.py`) are
 drawn at random within strata of item type and condition, with an equal share per stratum, so
 each item type, and with it each inflation label, gets the same number of items; the sample key
-gives each item's stratum and its weight for reweighting to the whole pool.
+gives each item's stratum and its weight for reweighting to the whole pool. `human_check`
+reports, for each pair of annotators and each annotator against the judge, the agreement,
+overall kappa and per-label kappa (each label against the rest) in two labelled blocks:
+`unweighted_sample` (every sampled item counts once; the 0.7 gate uses its overall kappa) and
+`weighted_population` (items weighted by the key's weights, `sample_weights(key_path)`: an
+estimate of agreement over all summaries and items).
 
 ### The behaviour probe
 

@@ -116,6 +116,15 @@ the pilot only as test fixtures and qualitative motivation, not for behavioural 
    chance. The key gains `stratum` and `weight` (pool size of the stratum / items drawn from it).
    Tests: `test_annotation_sample_is_stratified_by_item_type_and_condition`,
    `test_small_strata_pass_their_share_on`, `test_allocate_splits_evenly_within_capacity`.
+   `human_check` (`judge/agreement.py`) now reports per-label kappa (each label against the
+   rest) next to overall kappa and agreement, in two labelled blocks per pair:
+   `unweighted_sample` (the stratified sample as drawn; the 0.7 gate uses this overall kappa,
+   and the result says so in `gate_on` and `basis`) and `weighted_population` (each item weighted
+   by its sample weight, read from the key with `sample_weights`: an estimate for the whole pool).
+   Judge-vs-judge pairs in `agreement_report` gain per-label kappa too. Tests:
+   `test_per_label_kappa_is_one_label_against_the_rest`, `test_weighted_kappa_counts_items_by_weight`,
+   `test_human_check_reports_unweighted_gate_and_weighted_population_estimate`,
+   `test_agreement_report_gives_per_label_kappa_for_judge_pairs`.
 2. **Refusals as a separate probe outcome.** `ProbeResult.refusal` is `"provider"` (the provider
    stopped a reply as a refusal: Anthropic `refusal`, OpenAI-compatible `content_filter`),
    `"text"` (the last reply declines in words, `probe.check.REFUSAL_TEXT`) or `""`; an agent
@@ -146,8 +155,8 @@ the pilot only as test fixtures and qualitative motivation, not for behavioural 
 6. `accept_refusal` is part of each agent request's cache key, so agent replies cached before
    this change are not reused. No main run has happened yet, so nothing is lost now.
 7. Stratifying by item type and condition gives every inflation label the same number of
-   chances, but whether a label appears still depends on how often models produce it. Kappa on
-   a stratified sample is not the pool kappa: the key's weights allow reweighting, but
-   `human_check` does not use them yet, and per-label kappa (REVIEW.md, finding 9) is still open.
+   chances, but whether a label appears still depends on how often models produce it. A
+   per-label kappa resting on a handful of items is noisy, and no interval is reported for it;
+   the weighted population estimate leans on the strata with the largest weights.
 8. I read 20 of the 80 templates in generated scenarios; the other 60 I checked only as bank
    entries, not in context.

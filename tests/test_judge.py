@@ -15,8 +15,10 @@ from inflatebench.judge import (
     judge_run,
     make_annotation_sample,
     parse_verdict,
+    per_label_kappa,
     quote_in_summary,
     read_human_labels,
+    sample_weights,
 )
 from inflatebench.judge.run import write_rows
 from inflatebench.models import FakeLLM
@@ -276,11 +278,13 @@ def test_annotation_sample_is_blind_and_round_trips(tmp_path, pilot, summaries):
 
     judge = [Label(scenario_id="pilot-05", condition=c, model="fake", repeat=0, judge=FINAL,
                    item_id=i, label=v[0]) for c, t in truth.items() for i, v in t.items()]
-    check = human_check(human, judge)
-    assert check["human_vs_judge"]["human:ana"]["kappa"] == 1.0
-    assert check["human_vs_judge"]["human:ben"]["agreement"] == pytest.approx(7 / 8)
+    check = human_check(human, judge, weights=sample_weights(tmp_path / "key.jsonl"))
+    ana, ben = check["human_vs_judge"]["human:ana"], check["human_vs_judge"]["human:ben"]
+    assert ana["unweighted_sample"]["kappa"] == 1.0 and ana["weighted_population"]["kappa"] == 1.0
+    assert ben["unweighted_sample"]["agreement"] == pytest.approx(7 / 8)
     assert check["humans"]["human:ana vs human:ben"]["n"] == 8
-    assert check["passes"] == (check["human_vs_judge"]["human:ben"]["kappa"] >= 0.7)
+    assert check["gate_on"] == "unweighted_sample"
+    assert check["passes"] == (ben["unweighted_sample"]["kappa"] >= 0.7)
 
 
 def test_off_type_labels_are_reasked_once_then_flagged(pilot):
@@ -410,3 +414,63 @@ def test_allocate_splits_evenly_within_capacity():
     assert take["c"] == 3 and {take["a"], take["b"]} <= {23, 24} and sum(take.values()) == 50
     assert allocate({"a": 2, "b": 1}, 10, random.Random(0)) == {"a": 2, "b": 1}
     assert allocate({"a": 5, "b": 5}, 0, random.Random(0)) == {"a": 0, "b": 0}
+
+
+def test_per_label_kappa_is_one_label_against_the_rest():
+    a = ["correct"] * 6 + ["promoted", "promoted", "hardened", "lost"]
+    b = ["correct"] * 6 + ["promoted", "correct", "hardened", "hardened"]
+    per = per_label_kappa(a, b)
+    assert set(per) == {"correct", "promoted", "hardened", "lost"}  # labels either rater used
+    # promoted: 2 by a, 1 by b, agreeing on 1 -> p_o = 0.9, p_e = 0.2*0.1 + 0.8*0.9 = 0.74
+    assert per["promoted"] == pytest.approx((0.9 - 0.74) / (1 - 0.74))
+    assert per["hardened"] == pytest.approx(cohen_kappa(
+        [x if x == "hardened" else "other" for x in a], [y if y == "hardened" else "other" for y in b]))
+    assert per["lost"] == 0.0  # only one rater ever used it
+    # The common label agrees well, the rare ones do not: what the overall kappa hides.
+    assert per["correct"] > per["promoted"]
+
+
+def test_weighted_kappa_counts_items_by_weight():
+    a, b = ["x", "x", "y", "y"], ["x", "y", "y", "y"]
+    assert cohen_kappa(a, b, [1, 1, 1, 1]) == pytest.approx(cohen_kappa(a, b))
+    # Weight 2 on an item is the same as listing it twice.
+    assert cohen_kappa(a, b, [2, 1, 1, 1]) == pytest.approx(cohen_kappa(["x"] + a, ["x"] + b))
+    with pytest.raises(ValueError):
+        cohen_kappa(a, b, [1, 1])
+
+
+def _labels(judge, labs, condition="free"):
+    return [Label(scenario_id=f"s{k}", condition=condition, model="m", repeat=0, judge=judge,
+                  item_id="o1", label=lab) for k, lab in enumerate(labs)]
+
+
+def test_human_check_reports_unweighted_gate_and_weighted_population_estimate():
+    # A stratified sample over-represents rare one-offs: 4 sampled items stand for few pool
+    # pairs (weight 1) where the human and judge disagree on inflation, and 4 for many
+    # (weight 10) where they agree on "correct".
+    human = _labels("human:ana", ["promoted", "promoted", "widened", "correct"] + ["correct"] * 4)
+    judge = _labels(FINAL, ["correct", "promoted", "promoted", "correct"] + ["correct"] * 4)
+    weights = {(f"s{k}", "free", "m", 0, "o1"): (1.0 if k < 4 else 10.0) for k in range(8)}
+    check = human_check(human, judge, weights=weights)
+    pair = check["human_vs_judge"]["human:ana"]
+    sample, population = pair["unweighted_sample"], pair["weighted_population"]
+    assert sample["agreement"] == pytest.approx(6 / 8)
+    assert population["agreement"] == pytest.approx(42 / 44)
+    assert population["kappa"] > sample["kappa"]  # the pool is mostly easy agreement
+    assert sample["per_label_kappa"]["promoted"] == pytest.approx(
+        cohen_kappa(["p", "p", "o", "o", "o", "o", "o", "o"], ["o", "p", "p", "o", "o", "o", "o", "o"]))
+    assert set(population["per_label_kappa"]) == {"correct", "promoted", "widened"}
+    # The gate is on the unweighted sample kappa, and the result says so.
+    assert check["gate_on"] == "unweighted_sample" and "gate" in check["basis"]["unweighted_sample"]
+    assert check["passes"] == (sample["kappa"] >= 0.7)
+    # Without weights there is no population estimate; with gaps in them, an error.
+    assert human_check(human, judge)["human_vs_judge"]["human:ana"]["weighted_population"] is None
+    with pytest.raises(ValueError, match="no sample weight"):
+        human_check(human, judge, weights={k: w for k, w in list(weights.items())[:3]})
+
+
+def test_agreement_report_gives_per_label_kappa_for_judge_pairs():
+    a = _labels("a", ["correct", "promoted", "correct"])
+    b = _labels("b", ["correct", "promoted", "hardened"])
+    pair = agreement_report(a + b)["pairs"]["a vs b"]
+    assert pair["per_label_kappa"]["promoted"] == 1.0 and "kappa" in pair

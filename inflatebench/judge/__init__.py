@@ -16,6 +16,7 @@ from inflatebench.judge.agreement import (  # noqa: E402
     agreement_report,
     cohen_kappa,
     human_check,
+    per_label_kappa,
 )
 from inflatebench.judge.judges import FINAL, LLMJudge, PanelJudge  # noqa: E402
 from inflatebench.judge.parse import (  # noqa: E402
@@ -33,6 +34,7 @@ from inflatebench.judge.run import (  # noqa: E402
     make_annotation_sample,
     quote_flag_rates,
     read_human_labels,
+    sample_weights,
     type_flag_rates,
 )
 
@@ -56,9 +58,11 @@ __all__ = [
     "judge_summaries",
     "make_annotation_sample",
     "parse_verdict",
+    "per_label_kappa",
     "quote_flag_rates",
     "quote_in_summary",
     "read_human_labels",
+    "sample_weights",
     "type_flag_rates",
     "unquoted",
 ]

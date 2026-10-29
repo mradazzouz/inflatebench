@@ -163,6 +163,12 @@ def read_rows(path: str | Path) -> list[dict]:
         return [json.loads(line) for line in f if line.strip()]
 
 
+def sample_weights(key_path: str | Path) -> dict[tuple[str, str, str, int, str], float]:
+    """Item key (as agreement.item_key) -> sample weight, from the key of make_annotation_sample."""
+    return {(r["scenario_id"], r["condition"], r["model"], r["repeat"], r["item_id"]): r["weight"]
+            for r in read_rows(key_path)}
+
+
 def read_human_labels(labels_path: str | Path, key_path: str | Path) -> list[Label]:
     """Join labels saved by annotation/index.html with the sample key into Label records.
 
