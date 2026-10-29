@@ -9,9 +9,9 @@ from typing import Any, Protocol
 
 from inflatebench.schema import Message
 
-# Params that only distinguish cache entries (e.g. repeat 0, 1, 2 of the same prompt);
-# providers strip them before calling the API.
-KEY_ONLY_PARAMS = frozenset({"repeat"})
+# Params that only distinguish cache entries (e.g. repeat 0, 1, 2 of the same prompt) or tell
+# the cache how to check the reply (accept_refusal); providers strip them before calling the API.
+KEY_ONLY_PARAMS = frozenset({"repeat", "accept_refusal"})
 
 
 @dataclass

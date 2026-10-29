@@ -148,6 +148,26 @@ def test_behaviour_reports_probe_calls_and_rate_when_called():
     assert row["called_rate_lo"] <= row["called_rate"] <= row["called_rate_hi"]
 
 
+def test_behaviour_reports_the_refusal_rate():
+    scen = [Scenario.from_dict(s.to_dict() | {"id": sid}) for sid, s in
+            zip(("a", "b"), list(read_jsonl(Path(__file__).parent / "fixtures" / "scenarios.jsonl",
+                                            Scenario))[:2])]
+    probes = [ProbeResult("a", "free", "x", 0, probe_called=True, inflated=True),
+              ProbeResult("a", "free", "x", 1, refusal="text"),
+              ProbeResult("b", "free", "x", 0, refusal="provider"),
+              ProbeResult("b", "free", "x", 1),  # no call, no refusal: a question, say
+              ProbeResult("a", "full", "x", 0, probe_called=True),
+              ProbeResult("b", "full", "x", 0, probe_called=True)]
+    df = m.probe_frame(probes, scen)
+    assert df["refused"].tolist() == [False, True, True, False, False, False]
+    rows = behaviour_rates(df, n_boot=50).set_index("condition")
+    free = rows.loc["free"]
+    assert free["refusal_rate"] == pytest.approx(2 / 4)  # alongside the behavioural rates
+    assert (free["refusal_rate_num"], free["refusal_rate_den"]) == (2, 4)
+    assert free["refusal_rate_lo"] <= free["refusal_rate"] <= free["refusal_rate_hi"]
+    assert free["rate"] == pytest.approx(1 / 4) and rows.loc["full", "refusal_rate"] == 0
+
+
 def test_mixed_logit_drops_constant_factors(pilot):
     scenarios, labels, _ = synthetic_run(pilot, n_scenarios=12, models=("only",))
     items = m.item_frame(labels, scenarios)

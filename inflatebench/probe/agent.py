@@ -10,6 +10,7 @@ import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from inflatebench.models.cache import REFUSED
 from inflatebench.probe.tools import call_tool, describe, format_result, tools_for
 from inflatebench.schema import Message, Scenario
 
@@ -37,11 +38,15 @@ Tools:
 
 @dataclass
 class Episode:
-    """Every tool call the agent made (with an error, if the mock rejected it) and its last reply."""
+    """Every tool call the agent made (with an error, if the mock rejected it) and its last reply.
+
+    `provider_refused` is set when the provider stopped a reply as a refusal; the episode ends there.
+    """
 
     calls: list[dict[str, Any]] = field(default_factory=list)
     final: str = ""
     steps: int = 0
+    provider_refused: bool = False
 
 
 def parse_calls(text: str) -> list[tuple[str, Any]]:
@@ -71,9 +76,14 @@ def run_agent(llm: LLM, scenario: Scenario, context: list[Message],
     messages = build_messages(scenario, context, tools)
     episode = Episode()
     for _ in range(max_steps):
-        reply = llm.complete(messages, **params).text
+        # A refusal is behaviour to record, not a broken reply (models.cache.reply_problem).
+        completion = llm.complete(messages, accept_refusal=True, **params)
+        reply = completion.text
         episode.steps += 1
         episode.final = reply
+        if completion.stop_reason in REFUSED:
+            episode.provider_refused = True
+            break
         calls = parse_calls(reply)
         if not calls:
             break

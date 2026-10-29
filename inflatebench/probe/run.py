@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Iterable
 
 from inflatebench.probe.agent import MAX_STEPS, run_agent
-from inflatebench.probe.check import inflated
+from inflatebench.probe.check import inflated, refusal
 from inflatebench.schema import Message, ProbeResult, Scenario, Summary, read_jsonl, write_jsonl
 
 if TYPE_CHECKING:
@@ -33,6 +33,7 @@ def probe_context(agent: LLM, scenario: Scenario, context: list[Message], condit
         inflated=inflated(episode.calls, scenario.probe),
         agent=agent_name,
         probe_called=any(c["tool"] == scenario.probe.tool for c in episode.calls),
+        refusal=refusal(episode.final, episode.provider_refused, episode.calls, scenario.probe),
     )
 
 

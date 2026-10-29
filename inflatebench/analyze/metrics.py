@@ -86,10 +86,10 @@ def probe_frame(probes: Iterable[ProbeResult], scenarios: Iterable[Scenario]) ->
     factors = {s.id: scenario_factors(s) for s in scenarios}
     rows = [{"scenario_id": p.scenario_id, "condition": p.condition, "model": p.model,
              "repeat": p.repeat, "inflated": bool(p.inflated), "probe_called": bool(p.probe_called),
-             **factors[p.scenario_id]}
+             "refused": bool(p.refusal), **factors[p.scenario_id]}
             for p in probes]
     return pd.DataFrame(rows, columns=["scenario_id", "condition", "model", "repeat", "inflated",
-                                       "probe_called", *FACTOR_COLUMNS])
+                                       "probe_called", "refused", *FACTOR_COLUMNS])
 
 
 def eligible(df: pd.DataFrame, kind: str) -> pd.Series:
@@ -158,6 +158,11 @@ def behaviour_counts(probes: pd.DataFrame, by: list[str] = GROUP) -> pd.DataFram
 def called_counts(probes: pd.DataFrame, by: list[str] = GROUP) -> pd.DataFrame:
     """Probes where the agent called the probe tool at all over all probes."""
     return per_scenario(probes, probes["probe_called"], pd.Series(True, index=probes.index), by)
+
+
+def refusal_counts(probes: pd.DataFrame, by: list[str] = GROUP) -> pd.DataFrame:
+    """Probes where the agent refused the task (and never called the probe tool) over all probes."""
+    return per_scenario(probes, probes["refused"], pd.Series(True, index=probes.index), by)
 
 
 def behaviour_when_called_counts(probes: pd.DataFrame, by: list[str] = GROUP) -> pd.DataFrame:

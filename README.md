@@ -61,7 +61,11 @@ use the same file without `--scenarios`. For a real run, fill in the model names
    tool-call arguments against the scenario's `probe.inflated_if`. The check is
    deterministic; no judge is involved. It also runs the **full-history baseline** (condition
    `full`): the same agent, task and tools with the uncompacted history instead of a summary,
-   once per scenario, model and repeat. Options: `--max-steps N` agent replies per probe,
+   once per scenario, model and repeat. A probe in which the agent refuses the task instead of
+   calling the probe tool records how in `refusal`: `provider` when the provider stopped a reply
+   as a refusal (Anthropic `refusal`, OpenAI-compatible `content_filter`; cached like any
+   answer, while compaction and judge calls still reject an empty reply), `text` when the last
+   reply declines in words (a narrow phrase match in `probe/check.py`). Options: `--max-steps N` agent replies per probe,
    `--no-full` to skip the baseline (long histories make it the most expensive part).
 5. **analyze** writes inflation rates by type, constraint precision and recall,
    behavioural inflation rates (all with 95% bootstrap intervals that resample one-off
@@ -69,7 +73,8 @@ use the same file without `--scenarios`. For a real run, fill in the model names
    mixed-effects regressions (fixed effects for condition, model, cue, length and one-off
    position; random intercepts per template and per scenario), `summary.json` and figures.
    `behaviour.csv` gives the behavioural rate over all probes (`rate`), how often the agent called
-   the probe tool at all (`called_rate`), the behavioural rate among probes that called it
+   the probe tool at all (`called_rate`), how often it refused the task instead
+   (`refusal_rate`; refusals count as not inflated in `rate`), the behavioural rate among probes that called it
    (`rate_when_called`), and the **compaction-induced** rate: each condition's rate minus the
    full-history rate for the same model (`induced`, and `induced_when_called`), with a paired
    bootstrap interval. The behaviour regression uses `full` as its reference condition.
@@ -81,7 +86,15 @@ use the same file without `--scenarios`. For a real run, fill in the model names
 Each stage logs its model calls (`calls.jsonl`, `judge_calls.jsonl`, `probe_calls.jsonl`)
 with model, date, token counts and cost, and records the models, provider settings, date and
 spend of the stage run in `run.json`, `judge.json` and `probe.json`. Human labels for the judge check are collected
-with `annotation/index.html`.
+with `annotation/index.html`. The items for it (`make_annotation_sample` in `judge/run.py`) are
+drawn at random within strata of item type and condition, with an equal share per stratum, so
+each item type, and with it each inflation label, gets the same number of items; the sample key
+gives each item's stratum and its weight for reweighting to the whole pool. `human_check`
+reports, for each pair of annotators and each annotator against the judge, the agreement,
+overall kappa and per-label kappa (each label against the rest) in two labelled blocks:
+`unweighted_sample` (every sampled item counts once; the 0.7 gate uses its overall kappa) and
+`weighted_population` (items weighted by the key's weights, `sample_weights(key_path)`: an
+estimate of agreement over all summaries and items).
 
 ### The behaviour probe
 

@@ -11,7 +11,15 @@ from inflatebench.conditions import neutral_context
 from inflatebench.judge.judges import PanelJudge
 from inflatebench.judge.rubric import ALLOWED_LABELS
 from inflatebench.models import Deferred, Pending, run_phases
-from inflatebench.schema import Label, Scenario, Summary, read_jsonl, write_jsonl
+from inflatebench.schema import (
+    ITEM_TYPES,
+    Item,
+    Label,
+    Scenario,
+    Summary,
+    read_jsonl,
+    write_jsonl,
+)
 
 
 def judge_summaries(panel: PanelJudge, scenarios: Iterable[Scenario],
@@ -79,20 +87,54 @@ def type_flag_rates(labels: Iterable[Label]) -> dict[str, dict[str, Any]]:
     return dict(sorted(out.items()))
 
 
+def allocate(sizes: dict[Any, int], n: int, rng: random.Random) -> dict[Any, int]:
+    """Split n draws as evenly as possible over strata of the given sizes.
+
+    A stratum never gets more than it holds; what it cannot take goes to the others. When the
+    draws do not divide evenly, the strata that get one more are chosen at random.
+    """
+    take = dict.fromkeys(sizes, 0)
+    left = min(n, sum(sizes.values()))
+    while left:
+        open_ = [s for s in sizes if take[s] < sizes[s]]
+        share, extra = divmod(left, len(open_))
+        lucky = set(rng.sample(open_, extra))
+        for s in open_:
+            add = min(share + (s in lucky), sizes[s] - take[s])
+            take[s] += add
+            left -= add
+    return take
+
+
 def make_annotation_sample(scenarios: Iterable[Scenario], summaries: Iterable[Summary],
                            n: int = 200, seed: int = 0,
                            include_history: bool = True) -> tuple[list[dict], list[dict]]:
-    """Randomly sample n (summary, item) pairs for human labelling, blind to condition.
+    """Sample n (summary, item) pairs for human labelling, stratified by item type and condition,
+    blind to condition.
+
+    Every (item type, condition) stratum gets an equal share of the n pairs (a stratum with too
+    few pairs passes the rest on), so each item type, and with it each inflation label (promoted
+    and widened on one-offs, hardened on preferences, request_promoted on requests), gets the
+    same number of items, spread evenly over the conditions. A uniform draw would give requests
+    twice the share of the others (two per scenario) and leave rare labels to chance. Pairs
+    within a stratum are drawn at random, and the sample is shuffled so its order shows nothing.
 
     Returns (sample, key): the sample rows go to the annotation page and carry only an
-    opaque uid; the key rows map each uid back to condition, model and repeat.
+    opaque uid; the key rows map each uid back to condition, model and repeat, with its stratum
+    and weight (pairs in the stratum / pairs drawn from it) for reweighting to the whole pool.
     """
     by_id = {s.id: s for s in scenarios}
-    pool = [(summ, item) for summ in summaries for item in by_id[summ.scenario_id].items]
+    strata: dict[tuple[str, str], list[tuple[Summary, Item]]] = {}
+    for summ in summaries:
+        for item in by_id[summ.scenario_id].items:
+            strata.setdefault((item.type, summ.condition), []).append((summ, item))
+    order = sorted(strata, key=lambda s: (ITEM_TYPES.index(s[0]), s[1]))
     rng = random.Random(seed)
-    picked = rng.sample(pool, min(n, len(pool)))
+    take = allocate({s: len(strata[s]) for s in order}, n, rng)
+    picked = [(pair, s) for s in order for pair in rng.sample(strata[s], take[s])]
+    rng.shuffle(picked)
     sample, key = [], []
-    for k, (summ, item) in enumerate(picked):
+    for k, ((summ, item), stratum) in enumerate(picked):
         uid = f"u{k:04d}"
         scen = by_id[summ.scenario_id]
         row: dict[str, Any] = {"uid": uid, "scenario_id": scen.id, "item_id": item.id,
@@ -103,7 +145,8 @@ def make_annotation_sample(scenarios: Iterable[Scenario], summaries: Iterable[Su
             row["history"] = [m.to_dict() for m in scen.history]
         sample.append(row)
         key.append({"uid": uid, "scenario_id": scen.id, "condition": summ.condition,
-                    "model": summ.model, "repeat": summ.repeat, "item_id": item.id})
+                    "model": summ.model, "repeat": summ.repeat, "item_id": item.id,
+                    "stratum": "/".join(stratum), "weight": len(strata[stratum]) / take[stratum]})
     return sample, key
 
 
@@ -118,6 +161,12 @@ def write_rows(path: str | Path, rows: Iterable[dict]) -> None:
 def read_rows(path: str | Path) -> list[dict]:
     with Path(path).open(encoding="utf-8") as f:
         return [json.loads(line) for line in f if line.strip()]
+
+
+def sample_weights(key_path: str | Path) -> dict[tuple[str, str, str, int, str], float]:
+    """Item key (as agreement.item_key) -> sample weight, from the key of make_annotation_sample."""
+    return {(r["scenario_id"], r["condition"], r["model"], r["repeat"], r["item_id"]): r["weight"]
+            for r in read_rows(key_path)}
 
 
 def read_human_labels(labels_path: str | Path, key_path: str | Path) -> list[Label]:
