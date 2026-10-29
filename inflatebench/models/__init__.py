@@ -58,6 +58,7 @@ class Completion:
     cache_read_tokens: int = 0  # prompt-cache reads
     stop_reason: str = ""
     batch: bool = False  # produced through a batch API (discounted)
+    thinking: str = ""  # reasoning the provider returned alongside the answer; never scored
 
 
 @dataclass

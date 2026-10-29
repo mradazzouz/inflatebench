@@ -1,3 +1,4 @@
+import contextlib
 import importlib.util
 import json
 from types import SimpleNamespace as NS
@@ -135,9 +136,10 @@ class FakeAnthropic:
     def __init__(self, failures=()):
         self.failures = list(failures)
         self.created = []
+        self.streamed = []
         self.batches = {}
         self.outcomes = {}  # custom_id -> result namespace, overrides success
-        self.messages = NS(create=self._create, batches=NS(
+        self.messages = NS(create=self._create, stream=self._stream, batches=NS(
             create=self._batch_create, retrieve=self._retrieve, results=self._results))
         self.polls = 0
 
@@ -146,6 +148,13 @@ class FakeAnthropic:
             raise self.failures.pop(0)
         self.created.append(params)
         return message()
+
+    def _stream(self, **params):
+        """messages.stream: a context manager whose get_final_message() returns the Message."""
+        if self.failures:
+            raise self.failures.pop(0)
+        self.streamed.append(params)
+        return contextlib.nullcontext(NS(get_final_message=lambda: message("streamed")))
 
     def _batch_create(self, requests):
         bid = f"msgbatch_{len(self.batches)}"
@@ -573,3 +582,153 @@ def test_ib_compact_reports_unconfigured_provider(tmp_path, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     with pytest.raises(SystemExit, match="ANTHROPIC_API_KEY"):
         main(["--config", path, "compact", "--run-id", "r"])
+
+
+# --- replies cut off at max_tokens, per-model params, streaming ---------------------------
+
+
+def cut_off(text="{\"tool\": \"save_draft\", \"args\": {\"text\": \"Dear", thinking="planning the draft"):
+    return NS(content=[NS(type="thinking", thinking=thinking), NS(type="redacted_thinking", data="x"),
+                       NS(type="text", text=text)],
+              model="m", stop_reason="max_tokens",
+              usage=NS(input_tokens=10, output_tokens=8192, cache_creation_input_tokens=0,
+                       cache_read_input_tokens=0))
+
+
+def test_truncated_reply_is_saved_for_inspection_raised_and_never_cached(tmp_path):
+    from inflatebench.models.cache import ReplyError
+
+    client = FakeAnthropic()
+    client.messages.create = lambda **p: cut_off()
+    debug = tmp_path / "runs" / "r1" / "debug"
+    llm = CachedLLM(AnthropicLLM("m", client=client), DiskCache(tmp_path / "cache"), model="agent",
+                    debug_dir=debug)
+    with pytest.raises(ReplyError, match="cut off at the token limit.*saved to"):
+        llm.complete(HISTORY, accept_refusal=True)
+    assert llm.request(HISTORY, accept_refusal=True) not in llm.cache
+    (saved,) = debug.glob("*.json")
+    record = json.loads(saved.read_text())
+    assert record["completion"]["text"].startswith('{"tool": "save_draft"')
+    assert record["completion"]["thinking"] == "planning the draft\n\n[redacted thinking]"
+    assert record["completion"]["stop_reason"] == "max_tokens" and record["completion"]["output_tokens"] == 8192
+    assert record["key"] == llm.request(HISTORY, accept_refusal=True).key()
+    assert record["request"]["messages"][-1]["content"] == "Summarise the session."
+
+    # Without a debug directory nothing is written; an empty reply is not a cut-off one.
+    with pytest.raises(ReplyError):
+        CachedLLM(AnthropicLLM("m", client=client), DiskCache(tmp_path / "cache"), model="agent").complete(HISTORY)
+    empty = FakeLLM([""])
+    with pytest.raises(ReplyError, match="empty reply"):
+        CachedLLM(empty, DiskCache(tmp_path / "cache"), model="e", debug_dir=tmp_path / "e").complete(HISTORY)
+    assert not (tmp_path / "e").exists()
+
+
+def test_truncated_batch_reply_is_saved_and_not_cached(tmp_path):
+    client = FakeAnthropic()
+    llm = CachedLLM(AnthropicLLM("m", client=client), DiskCache(tmp_path / "cache"), model="anthropic:m",
+                    debug_dir=tmp_path / "debug")
+    req = llm.request(HISTORY, repeat=0)
+    client.outcomes[req.key()] = NS(type="succeeded", message=cut_off("partial summary"))
+    with pytest.raises(RuntimeError, match="cut off at the token limit"):
+        llm.run_batch([req], sleep=no_sleep)
+    assert req not in llm.cache
+    (saved,) = (tmp_path / "debug").glob("*.json")
+    assert json.loads(saved.read_text())["completion"]["text"] == "partial summary"
+
+
+def test_thinking_is_kept_apart_from_the_answer_and_out_of_the_usage_log(tmp_path):
+    from inflatebench.models.openai_compatible import reasoning_text
+
+    client = FakeAnthropic()
+    client.messages.create = lambda **p: NS(**vars(cut_off("the answer", "why")) | {"stop_reason": "end_turn"})
+    c = AnthropicLLM("m", client=client).complete(HISTORY)
+    assert c.text == "the answer" and c.thinking == "why\n\n[redacted thinking]"
+    assert AnthropicLLM("m", client=FakeAnthropic()).complete(HISTORY).thinking == ""  # display "omitted"
+
+    assert reasoning_text({"content": "a", "reasoning_content": "r"}) == "r"
+    assert reasoning_text({"content": "<think>\nhmm\n</think>\n\na"}) == "<think>\nhmm\n</think>"
+    assert reasoning_text({"content": [{"type": "reasoning", "text": "r"}, {"type": "text", "text": "a"}]}) == "r"
+
+    log = tmp_path / "usage.jsonl"
+    UsageLog(log).record(c, "k")
+    assert "thinking" not in json.loads(log.read_text())
+
+
+def test_anthropic_per_model_params_are_sent_and_keyed_only_when_set(tmp_path, monkeypatch):
+    # The fields documented in config.yaml and README for claude-haiku-5-5.
+    params = {"output_config": {"effort": "low"}, "thinking": {"type": "disabled"}}
+    claude = AnthropicLLM("claude-haiku-5-5", client=FakeAnthropic(), max_tokens=8192, params=params)
+    body = claude.params(HISTORY, {"repeat": 1, "accept_refusal": True})
+    assert body["output_config"] == {"effort": "low"} and body["thinking"] == {"type": "disabled"}
+    assert "repeat" not in body and "accept_refusal" not in body
+    assert claude.settings() == {"provider": "anthropic", "model": "claude-haiku-5-5", "max_tokens": 8192,
+                                 "params": params}
+    assert "params" not in AnthropicLLM("claude-haiku-5-5", client=FakeAnthropic(), max_tokens=8192).settings()
+
+    def cached(p):
+        return CachedLLM(AnthropicLLM("m", client=FakeAnthropic(), params=p), DiskCache(tmp_path), model="label")
+
+    assert not cached(None).complete(HISTORY).cached
+    assert cached(None).complete(HISTORY).cached
+    assert not cached({"output_config": {"effort": "low"}}).complete(HISTORY).cached
+    assert not cached({"output_config": {"effort": "medium"}}).complete(HISTORY).cached
+    assert cached({"output_config": {"effort": "low"}}).complete(HISTORY).cached
+
+    # The factory passes a config entry's params through.
+    from inflatebench.models import factory
+
+    monkeypatch.setattr("inflatebench.models.anthropic.make_client", lambda env: FakeAnthropic())
+    built = factory.make_llm({"provider": "anthropic", "name": "claude-haiku-5-5", "params": params})
+    assert built.extra == params
+
+
+def test_config_and_readme_document_the_haiku_params():
+    config = open("config.yaml", encoding="utf-8").read()
+    readme = open("README.md", encoding="utf-8").read()
+    for text in (config, readme):
+        assert "output_config" in text and "effort" in text and "thinking" in text
+        assert "budget_tokens" in text  # documented as rejected
+    # Documentation only: the main model's values are unchanged and it sends no extra params.
+    main_model = yaml.safe_load(config)["models"]["main"]
+    assert main_model == {"provider": "anthropic", "name": "claude-haiku-5-5", "batch": True, "max_tokens": 8192}
+
+
+def test_anthropic_streams_when_max_tokens_needs_it():
+    from inflatebench.models.anthropic import NONSTREAMING_MAX_TOKENS, needs_streaming
+
+    assert not needs_streaming("claude-haiku-5-5", 16000)
+    assert not needs_streaming("claude-haiku-5-5", NONSTREAMING_MAX_TOKENS)
+    assert needs_streaming("claude-haiku-5-5", NONSTREAMING_MAX_TOKENS + 1)
+    assert needs_streaming("claude-haiku-5-5", 32000)
+
+    client = FakeAnthropic()
+    small = AnthropicLLM("claude-haiku-5-5", client=client, max_tokens=16000).complete(HISTORY)
+    assert small.text == "summary" and len(client.created) == 1 and not client.streamed
+
+    client = FakeAnthropic(failures=[StatusError(529)])
+    big = AnthropicLLM("claude-haiku-5-5", client=client, max_tokens=32000, sleep=no_sleep).complete(HISTORY)
+    assert big.text == "streamed" and big.stop_reason == "end_turn" and big.input_tokens == 100
+    assert not client.created and client.streamed[0]["max_tokens"] == 32000  # retried, then streamed
+    # A per-call max_tokens decides too.
+    client = FakeAnthropic()
+    AnthropicLLM("m", client=client, max_tokens=1024).complete(HISTORY, max_tokens=64000)
+    assert client.streamed and not client.created
+
+
+@needs_anthropic_sdk
+def test_streaming_threshold_matches_the_sdk():
+    import anthropic
+
+    from inflatebench.models.anthropic import NONSTREAMING_MAX_TOKENS, needs_streaming
+
+    from anthropic._constants import MODEL_NONSTREAMING_TOKENS
+
+    client = anthropic.Anthropic(api_key="sk-test")
+    for model in ("claude-haiku-5-5", "claude-opus-4-0"):
+        for max_tokens in (8192, 8193, NONSTREAMING_MAX_TOKENS, NONSTREAMING_MAX_TOKENS + 1, 32000):
+            try:
+                client._calculate_nonstreaming_timeout(max_tokens, MODEL_NONSTREAMING_TOKENS.get(model))
+                sdk_requires = False
+            except ValueError:
+                sdk_requires = True
+            assert needs_streaming(model, max_tokens) == sdk_requires, (model, max_tokens)

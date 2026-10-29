@@ -32,6 +32,11 @@ You may call several tools in one reply; each result comes back in the next mess
 only the tools and arguments listed; an argument you leave out takes the tool's default.
 When the task is done, reply in plain text with no JSON object.
 
+Keep every reply short: a tool call carries only the action and its arguments. Give each
+argument the shortest value that does the job. Never write out full implementations, documents
+or file contents, in a tool call or around it; where an argument takes text, a few sentences
+are enough.
+
 Tools:
 {tools}"""
 

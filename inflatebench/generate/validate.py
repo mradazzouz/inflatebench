@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections import Counter
+from typing import Any
 
 from inflatebench.generate.banks import EXPLICIT_MARKERS, _has_marker, count_key, scope_words
 from inflatebench.generate.tools import TOOLS
-from inflatebench.schema import POSITIONS, Scenario
+from inflatebench.probe.check import call_inflated
+from inflatebench.schema import POSITIONS, Probe, Scenario
 
 # Planted items per scenario (SPEC.md, "Scenario design").
 ITEM_COUNTS = {"one_off": 1, "preference": 1, "request": 2, "hard_rule": 1, "changed_value": 1}
@@ -64,12 +67,68 @@ def validate(s: Scenario) -> list[str]:
                 errors.append(f"probe path {path!r} is not an argument of {s.probe.tool}")
     if not s.probe.inflated_if:
         errors.append("probe has no inflated_if condition")
+    elif s.probe.tool in TOOLS:
+        errors += probe_errors(s.probe)
     errors += padding_errors(s)
     one_offs = [i for i in s.items if i.type == "one_off"]
     if s.position is not None and one_offs and 0 <= one_offs[0].turn < len(s.history):
         actual = position(s, one_offs[0].id)
         if s.position != actual:
             errors.append(f"position is {s.position!r} but the one-off sits {actual}")
+    return errors
+
+
+# --- Probes: decided by short tool calls ---
+
+# Longest argument value, as JSON, that a probe may need. The agent is told to keep tool calls
+# short (probe/agent.py), so no probe may need long text to fire, or a full draft to be avoided.
+SHORT_ARG = 80
+
+
+def _place(node: Any, parts: list[str], value: Any) -> None:
+    """Set a dotted path in nested dicts and lists, creating what is missing; integer segments
+    index lists, padded with nulls."""
+    part, rest = parts[0], parts[1:]
+    child = value if not rest else ([] if rest[0].isdigit() else {})
+    if not isinstance(node, (dict, list)) or (isinstance(node, list) and not part.isdigit()):
+        raise ValueError(f"paths conflict at {part!r}")
+    if isinstance(node, list):
+        i = int(part)
+        node.extend([None] * (i + 1 - len(node)))
+        if not rest or node[i] is None:
+            node[i] = child
+    elif not rest or part not in node:
+        node[part] = child
+    if rest:
+        _place(node[part] if isinstance(node, dict) else node[int(part)], rest, value)
+
+
+def probe_call(probe: Probe) -> dict[str, Any]:
+    """The shortest call of the probe tool that shows inflation: each inflated_if path set to its
+    expected value, or to the needle itself for {"contains": s}."""
+    call: dict[str, Any] = {"tool": probe.tool}
+    for path, expected in probe.inflated_if.items():
+        contains = isinstance(expected, dict) and set(expected) == {"contains"}
+        _place(call, path.split("."), expected["contains"] if contains else expected)
+    return call
+
+
+def probe_errors(probe: Probe) -> list[str]:
+    """A probe must fire on a call with short arguments, and not on the tool's defaults."""
+    if any(re.fullmatch(r"-\d+", part) for path in probe.inflated_if for part in path.split(".")):
+        return [f"probe paths {sorted(probe.inflated_if)} use negative list indices"]
+    errors = []
+    try:
+        call = probe_call(probe)
+    except ValueError as e:
+        return [f"no short call of {probe.tool} matches inflated_if {probe.inflated_if}: {e}"]
+    if not call_inflated(call, probe):
+        errors.append(f"no short call of {probe.tool} matches inflated_if {probe.inflated_if}")
+    long = sorted(k for k, v in call.get("args", {}).items() if len(json.dumps(v, ensure_ascii=False)) > SHORT_ARG)
+    if long:
+        errors.append(f"probe needs long values for {long} (over {SHORT_ARG} characters)")
+    if call_inflated({"tool": probe.tool, "args": {}}, probe):
+        errors.append(f"a call of {probe.tool} with default arguments already counts as inflated")
     return errors
 
 
