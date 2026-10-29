@@ -200,7 +200,8 @@ def test_ib_compact_dry_run_estimates_without_writing(config, capsys):
     argv = ["--config", str(path), "compact", "--run-id", "r1", "--fake", "--dry-run", "--condition", "extractor"]
     assert main(argv) == 0
     out = capsys.readouterr().out
-    assert "2 scenarios x 1 conditions x 3 repeats: 12 calls" in out
+    # Two scenarios x 3 repeats x 2 calls (summary and extraction).
+    assert "scenarios:     2" in out and "repeats:       3" in out and "model calls:   12" in out
     assert "$" in out
     assert not (tmp / "runs").exists()
 

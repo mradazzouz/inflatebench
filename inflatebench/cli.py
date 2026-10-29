@@ -16,10 +16,6 @@ from inflatebench.schema import Message, Scenario, Summary, read_jsonl, write_js
 if TYPE_CHECKING:
     from inflatebench.models import LLM, Completion
 
-# Assumed output length per call for `ib compact --dry-run`: a 250-word summary is about 350 tokens.
-DRY_RUN_OUTPUT_TOKENS = 400
-
-
 def load_config(path: str | Path) -> dict[str, Any]:
     with Path(path).open(encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
@@ -61,36 +57,44 @@ def _make_llm(cfg: dict[str, Any], model_key: str, fake: bool) -> tuple[LLM, str
     factory = getattr(models, "make_llm", None)
     if factory is None:
         raise SystemExit(f"provider {spec['provider']!r} is not available yet; use --fake")
-    return factory(spec), spec["name"]
+    try:
+        return factory(spec, cfg.get("prices")), spec["name"]
+    except (ValueError, RuntimeError) as e:  # placeholder name, missing API key or SDK
+        raise SystemExit(f"ib compact: {e}") from None
 
 
 def _compact(args: argparse.Namespace) -> int:
     from inflatebench.conditions import get_condition
-    from inflatebench.models import CachedLLM, DiskCache, FakeLLM
+    from inflatebench.models import CachedLLM, DiskCache
 
     cfg = load_config(args.config)
+    if args.model not in cfg["models"]:
+        raise SystemExit(f"ib compact: no model {args.model!r} in config; have {sorted(cfg['models'])}")
     conditions = [get_condition(n) for n in args.condition or cfg["conditions"]]
-    scenarios = list(read_jsonl(args.scenarios or cfg["paths"]["scenarios"], Scenario))[: args.limit]
+    path = Path(args.scenarios or cfg["paths"]["scenarios"])
+    if not path.exists():
+        raise SystemExit(f"ib compact: {path} not found; run ib generate or pass --scenarios")
+    scenarios = list(read_jsonl(path, Scenario))
+    # The strong model runs on a fixed subset (config models.<key>.subset), then --limit applies.
+    subset = None if args.fake else cfg["models"][args.model].get("subset")
+    scenarios = scenarios[:subset][: args.limit]
     repeats = args.repeats or cfg["repeats"]
 
     if args.dry_run:
-        model = "fake" if args.fake else cfg["models"][args.model]["name"]
-        counter = FakeLLM(lambda msgs: "x " * DRY_RUN_OUTPUT_TOKENS)
-        for scenario in scenarios:
-            for condition in conditions:
-                condition.compact(scenario.history, counter)
-        calls = len(counter.calls) * repeats
-        # About four characters per token.
-        tokens_in = sum(len(m.content) for msgs in counter.calls for m in msgs) // 4 * repeats
-        tokens_out = calls * DRY_RUN_OUTPUT_TOKENS
-        print(f"{len(scenarios)} scenarios x {len(conditions)} conditions x {repeats} repeats: {calls} calls")
-        print(f"~{tokens_in:,} input tokens, ~{tokens_out:,} output tokens")
-        price = cfg.get("prices", {}).get(model)
-        if price:
-            cost = (tokens_in * price["input"] + tokens_out * price["output"]) / 1e6
-            print(f"~${cost:,.2f} for {model}")
-        else:
-            print(f"no price for {model!r} in config.yaml")
+        from inflatebench.models.estimate import estimate
+        from inflatebench.models.pricing import Prices
+
+        entry = {"name": "fake"} if args.fake else cfg["models"][args.model]
+        est = estimate(
+            scenarios,
+            entry,
+            [c.name for c in conditions],
+            repeats,
+            Prices(cfg.get("prices")),
+            output_tokens=args.output_tokens,
+        )
+        print(f"ib compact --dry-run ({'fake' if args.fake else args.model})")
+        print("\n".join("  " + line for line in est.lines()))
         return 0
 
     llm, model = _make_llm(cfg, args.model, args.fake)
@@ -114,6 +118,8 @@ def _compact(args: argparse.Namespace) -> int:
                             "date": c.date or date.today().isoformat(),
                             "input_tokens": c.input_tokens,
                             "output_tokens": c.output_tokens,
+                            "cache_write_tokens": c.cache_write_tokens,
+                            "cache_read_tokens": c.cache_read_tokens,
                             "cost": c.cost,
                             "cached": c.cached,
                         }
@@ -144,7 +150,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--repeats", type=int, default=None, help="repeats per scenario (default from config)")
     p.add_argument("--limit", type=int, default=None, help="use only the first N scenarios")
     p.add_argument("--fake", action="store_true", help="use FakeLLM instead of a provider")
-    p.add_argument("--dry-run", action="store_true", help="estimate cost without calling models")
+    p.add_argument("--dry-run", action="store_true", help="estimate tokens and cost without calling models")
+    p.add_argument("--output-tokens", type=int, default=1000, help="assumed output tokens per call (dry run)")
 
     p = sub.add_parser("judge", help="write runs/<run_id>/labels.jsonl")
     p.add_argument("--run-id", required=True)

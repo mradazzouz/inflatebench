@@ -15,9 +15,11 @@ def test_fake_llm_cycles_and_records():
 
 def test_fake_llm_callable_and_batch():
     llm = FakeLLM(lambda msgs: msgs[-1].content.upper())
-    handle = llm.submit_batch([Request("m", [Message("user", "x")]), Request("m", [Message("user", "y")])])
+    reqs = [Request("m", [Message("user", "x")]), Request("m", [Message("user", "y")])]
+    handle = llm.submit_batch(reqs)
     assert handle.size == 2
-    assert [c.text for c in llm.batch_results(handle)] == ["X", "Y"]
+    results = llm.batch_results(handle)
+    assert [results[r.key()].text for r in reqs] == ["X", "Y"]
 
 
 @pytest.mark.parametrize("command", ["generate", "judge", "probe", "analyze"])
