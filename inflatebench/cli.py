@@ -8,7 +8,7 @@ import re
 import sys
 from datetime import date
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 import yaml
 
@@ -96,12 +96,24 @@ def _fake_judge_responder(messages: list[Message]) -> str:
     return json.dumps({"items": items, "invented": []})
 
 
-def _fake_agent_responder(messages: list[Message]) -> str:
-    """Calls every listed tool once with default arguments, then reports done."""
-    if messages[-1].role == "tool":
-        return "Done."
+def _fake_agent_responder(messages: list[Message], first: dict[str, str] | None = None) -> str:
+    """One tool call per reply with default arguments: the tool `first` maps the next task to
+    (the scenario's probe tool), then every other listed tool once, then reports done."""
     tools = re.findall(r"^- (\w+)\(", messages[0].content, re.MULTILINE)
-    return "\n".join(json.dumps({"tool": t, "args": {}}) for t in tools)
+    task = next(m.content for m in reversed(messages) if m.role == "user")
+    lead = (first or {}).get(task)
+    if lead in tools:
+        tools = [lead] + [t for t in tools if t != lead]
+    done = sum(m.role == "tool" for m in messages)
+    if done >= len(tools):
+        return "Done."
+    return "<call>" + json.dumps({"tool": tools[done], "args": {}}) + "</call>"
+
+
+def fake_agent(scenarios: Iterable[Scenario]) -> Callable[[list[Message]], str]:
+    """The fake agent for these scenarios: it calls each scenario's probe tool first."""
+    first = {s.next_task: s.probe.tool for s in scenarios}
+    return lambda messages: _fake_agent_responder(messages, first)
 
 
 def _make_llm(cfg: dict[str, Any], model_key: str, fake: bool, stage: str = "compact") -> tuple[LLM, str]:
@@ -338,7 +350,7 @@ def _probe(args: argparse.Namespace) -> int:
     if args.fake:
         from inflatebench.models import FakeLLM
 
-        llm, name = FakeLLM(_fake_agent_responder, model="fake-agent"), "fake-agent"
+        llm, name = FakeLLM(fake_agent(read_jsonl(scenarios, Scenario)), model="fake-agent"), "fake-agent"
     else:
         llm, name = _make_llm(cfg, key, fake=False, stage="probe")
     usage = _usage(run_dir / "probe_calls.jsonl")

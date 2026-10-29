@@ -396,7 +396,8 @@ conditioning.
   slogan matches a translation that quotes the original in brackets; "Laura" matches any cc of
   Laura for another reason.
 - A boolean given as a string (`"force": "true"`) never matches, and the mock tools do not
-  validate types, so the agent gets no error. That is a false negative.
+  validate types, so the agent gets no error. That is a false negative. (Since fixed: the
+  mock tools now reject a value of the wrong type with an error the agent can correct.)
 - A call the mock rejects (unknown extra argument) still counts as inflated if its arguments
   match (AUDIT.md item 13, still open).
 

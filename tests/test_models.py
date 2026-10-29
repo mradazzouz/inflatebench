@@ -732,3 +732,29 @@ def test_streaming_threshold_matches_the_sdk():
             except ValueError:
                 sdk_requires = True
             assert needs_streaming(model, max_tokens) == sdk_requires, (model, max_tokens)
+
+
+def test_stop_sequences_reach_each_provider_in_its_own_form():
+    stop = ["</call>", "[tool output]"]
+    anthropic = AnthropicLLM("m", client=FakeAnthropic()).params(HISTORY, {"stop": stop, "repeat": 1})
+    assert anthropic["stop_sequences"] == stop and "stop" not in anthropic
+    assert "stop_sequences" not in AnthropicLLM("m", client=FakeAnthropic()).params(HISTORY, {})
+    sent = []
+    local = OpenAICompatibleLLM("m", transport=lambda u, h, b: sent.append(b) or ollama_reply())
+    local.complete(HISTORY, stop=stop)
+    assert sent[-1]["stop"] == stop
+    # An endpoint that rejects `stop` (stop_sequences: false in config.yaml) never gets it.
+    plain = OpenAICompatibleLLM("m", stop_sequences=False, transport=lambda u, h, b: sent.append(b) or ollama_reply())
+    plain.complete(HISTORY, stop=stop)
+    assert "stop" not in sent[-1] and plain.settings()["stop_sequences"] is False
+    assert "stop_sequences" not in local.settings()
+
+
+def test_fake_llm_ends_a_reply_at_a_stop_sequence_like_a_provider():
+    from inflatebench.models import FakeLLM
+
+    reply = 'call <call>{"tool": "x"}</call> invented result'
+    c = FakeLLM([reply]).complete(HISTORY, stop=["</call>"])
+    assert (c.text, c.stop_reason) == ('call <call>{"tool": "x"}', "stop_sequence")
+    assert FakeLLM([reply]).complete(HISTORY).text == reply
+    assert FakeLLM([reply], stop_sequences=False).complete(HISTORY, stop=["</call>"]).text == reply

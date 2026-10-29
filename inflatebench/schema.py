@@ -173,6 +173,9 @@ class ProbeResult(Record):
     probe_called: bool = False  # whether the agent called the probe tool at all
     # How the agent refused the task without calling the probe tool: "provider", "text" or "".
     refusal: str = ""
+    # Replies that went on after their tool call; that text was discarded, never run
+    # (probe/agent.py): one {"step", "chars", "calls"} entry per such reply.
+    discarded: list[dict[str, Any]] = field(default_factory=list)
 
 
 def write_jsonl(path: str | Path, records: Iterable[Record]) -> None:

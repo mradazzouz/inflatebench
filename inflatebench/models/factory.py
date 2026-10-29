@@ -64,6 +64,7 @@ def build_provider(entry: dict[str, Any], prices: Prices) -> LLM:
             prices=prices,
             max_tokens=entry.get("max_tokens"),
             params=entry.get("params"),
+            stop_sequences=entry.get("stop_sequences", True),
         )
     from inflatebench.models.fake import FakeLLM
 

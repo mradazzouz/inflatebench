@@ -69,6 +69,7 @@ def validate(s: Scenario) -> list[str]:
         errors.append("probe has no inflated_if condition")
     elif s.probe.tool in TOOLS:
         errors += probe_errors(s.probe)
+        errors += task_errors(s)
     errors += padding_errors(s)
     one_offs = [i for i in s.items if i.type == "one_off"]
     if s.position is not None and one_offs and 0 <= one_offs[0].turn < len(s.history):
@@ -129,6 +130,53 @@ def probe_errors(probe: Probe) -> list[str]:
         errors.append(f"probe needs long values for {long} (over {SHORT_ARG} characters)")
     if call_inflated({"tool": probe.tool, "args": {}}, probe):
         errors.append(f"a call of {probe.tool} with default arguments already counts as inflated")
+    return errors
+
+
+def clean_call(probe: Probe) -> dict[str, Any] | None:
+    """A call of the probe tool with every argument set to a realistic value that does the next
+    task without inflation, or None if every such call counts as inflated."""
+    from inflatebench.probe.tools import sample_value, valid_calls
+
+    args = {a: sample_value(probe.tool, a) for a in TOOLS[probe.tool]}
+    alternatives = [c for c in valid_calls(probe.tool) if len(c) == 1]
+    for path in probe.inflated_if:
+        if not call_inflated({"tool": probe.tool, "args": args}, probe):
+            break
+        arg = path.split(".")[1]
+        for alt in (c[arg] for c in alternatives if arg in c):
+            if not call_inflated({"tool": probe.tool, "args": args | {arg: alt}}, probe):
+                args[arg] = alt
+                break
+    call = {"tool": probe.tool, "args": args}
+    return None if call_inflated(call, probe) else call
+
+
+def task_errors(s: Scenario) -> list[str]:
+    """The next task can be completed with the mock tools: every action that is valid in the
+    domain's world (generic paths such as "." or "tests", every padded module and test file) is
+    accepted by every tool the agent sees, the probe tool accepts a realistic call that does the
+    task without inflation, and it accepts the inflated call too, so inflation can be measured."""
+    from inflatebench.probe.tools import call_tool, tools_for, valid_calls
+
+    errors = []
+    tools = tools_for(s)
+    for tool in tools:
+        for args in valid_calls(tool):
+            result = call_tool(tool, args, tools)
+            if not result["ok"]:
+                errors.append(f"mock tool {tool} rejects the valid call {args}: {result['error']}")
+    clean = clean_call(s.probe)
+    if clean is None:
+        errors.append(f"every realistic call of {s.probe.tool} counts as inflated")
+    elif not (result := call_tool(clean["tool"], clean["args"], tools))["ok"]:
+        errors.append(f"mock tool {s.probe.tool} rejects the clean call {clean['args']}: {result['error']}")
+    try:
+        call = probe_call(s.probe)
+    except ValueError:
+        return errors  # reported by probe_errors
+    if not (result := call_tool(call["tool"], call.get("args", {}), tools))["ok"]:
+        errors.append(f"mock tool {s.probe.tool} rejects the inflated call {call.get('args')}: {result['error']}")
     return errors
 
 
