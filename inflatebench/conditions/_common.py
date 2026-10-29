@@ -52,19 +52,32 @@ def summary_message(text: str) -> Message:
 
 # What the judge and human annotators see in place of a condition's own headers.
 NEUTRAL_HEADER = "Context carried over from the earlier conversation:"
+# The extractor's list and the pinned block share one header: without one, their bullets would
+# read as more items of the summary's last section (often Next Steps), not as constraints.
+NEUTRAL_LIST_HEADER = "User constraints:"
 CONDITION_HEADERS = ("summary_header", "extracted_header", "pinned_header")
+LIST_HEADERS = ("extracted_header", "pinned_header")
+
+
+def _neutral_line(line: str, lists: set[str], dropped: set[str]) -> str | None:
+    if line.strip() in lists:
+        return NEUTRAL_LIST_HEADER
+    return None if line.strip() in dropped else line
 
 
 def neutral_context(messages: list[Message]) -> str:
     """One compacted context as plain text under a single neutral header.
 
-    The summary, an appended constraint list and a pinned block are merged in order, and every
-    header a condition adds is dropped, so the text does not say which condition produced it.
+    The summary, an appended constraint list and a pinned block are merged in order. The
+    summary header is dropped and both list headers become NEUTRAL_LIST_HEADER, so the text
+    does not say whether a list was extracted or pinned, but still says it lists constraints.
     """
-    headers = {prompt(h) for h in CONDITION_HEADERS}
+    lists = {prompt(h) for h in LIST_HEADERS}
+    dropped = {prompt(h) for h in CONDITION_HEADERS} - lists
     parts = []
     for m in messages:
-        text = "\n".join(line for line in m.content.splitlines() if line.strip() not in headers)
+        lines = (_neutral_line(line, lists, dropped) for line in m.content.splitlines())
+        text = "\n".join(line for line in lines if line is not None)
         text = re.sub(r"\n{3,}", "\n\n", text).strip()
         if text:
             parts.append(text)

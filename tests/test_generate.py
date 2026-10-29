@@ -16,14 +16,23 @@ from inflatebench.generate import (
     load_pilot,
     validate,
 )
-from inflatebench.generate.banks import EXPLICIT_MARKERS, OneOff, count_key, cue_ok
-from inflatebench.generate.builder import TARGET_TOKENS, TOKEN_TOLERANCE
+from inflatebench.generate.banks import (
+    EXPLICIT_MARKERS,
+    FIXED_CUE,
+    SCOPE_WORDS,
+    OneOff,
+    count_key,
+    cue_ok,
+    item_cue,
+    scope_words,
+)
+from inflatebench.generate.builder import HELDOUT_OCCURRENCE, TARGET_TOKENS, TEMPLATES, TOKEN_TOLERANCE
 from inflatebench.generate.domains import DOMAINS
 from inflatebench.generate.paraphrase import build_prompt, parse_variants
 from inflatebench.generate.tools import TOOLS
 from inflatebench.generate.validate import ITEM_COUNTS, history_tokens, position
 from inflatebench.models import FakeLLM
-from inflatebench.schema import Message, Scenario, read_jsonl
+from inflatebench.schema import CUES, LENGTHS, POSITIONS, Message, Scenario, read_jsonl
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -40,11 +49,41 @@ def full():
 def test_bank_entries_carry_key_once_and_the_right_cue(domain):
     for item_type, p in domain.entries():
         for cue in ("explicit", "implicit"):
-            text = p.text(cue)
+            text = p.text(item_cue(item_type, cue))  # the variant a scenario with this cue uses
             assert count_key(text, p.key) == 1, (p.key, text)
             assert cue_ok(text, item_type, cue), (item_type, cue, text)
         for reply in p.texts()[2:]:
             assert count_key(reply, p.key) == 0, (p.key, reply)
+
+
+@pytest.mark.parametrize("domain", DOMAINS.values(), ids=list(DOMAINS))
+def test_implicit_one_offs_have_no_scope_or_temporal_words(domain):
+    for o in domain.one_offs:
+        assert scope_words(o.implicit) == [], (o.key, o.implicit)
+        assert scope_words(o.explicit), (o.key, o.explicit)  # explicit states it outright
+    for word in ("today", "now", "right now", "for now", "this time", "only", "just"):
+        assert word in SCOPE_WORDS
+
+
+def test_only_the_one_off_follows_the_cue():
+    assert item_cue("one_off", "explicit") == "explicit" and item_cue("one_off", "implicit") == "implicit"
+    for item_type, fixed in FIXED_CUE.items():
+        assert item_cue(item_type, "explicit") == item_cue(item_type, "implicit") == fixed
+
+
+@pytest.mark.parametrize("domain", DOMAINS.values(), ids=list(DOMAINS))
+def test_neutral_turns_set_no_rule_and_name_no_item(domain):
+    assert len(domain.neutral) >= 6
+    keys = [p.key for d in DOMAINS.values() for _, p in d.entries()]
+    markers = tuple(m for ms in EXPLICIT_MARKERS.values() for m in ms)
+    for user, reply in domain.neutral:
+        assert not any(count_key(user, k) or count_key(reply, k) for k in keys), user
+        assert cue_ok(user, "one_off", "implicit") and not any(
+            cue_ok(user, t, "explicit") for t in ("hard_rule", "preference", "changed_value", "one_off")), user
+        assert not scope_words(user), user
+    for o in domain.one_offs:
+        if o.resolved:
+            assert not any(cue_ok(o.resolved[0], t, "explicit") for t in EXPLICIT_MARKERS if EXPLICIT_MARKERS[t])
 
 
 @pytest.mark.parametrize("domain", DOMAINS.values(), ids=list(DOMAINS))
@@ -78,7 +117,7 @@ def test_translation_task_is_probed_on_the_translation_tool():
 
 @pytest.mark.parametrize("domain", DOMAINS.values(), ids=list(DOMAINS))
 def test_bank_sizes_and_probes(domain):
-    assert len(domain.one_offs) == 8 and len(domain.requests) >= 2
+    assert len(domain.one_offs) == TEMPLATES and len(domain.requests) >= 2
     assert min(len(domain.hard_rules), len(domain.preferences), len(domain.changes)) >= 8
     for o in domain.one_offs:
         assert isinstance(o, OneOff) and o.next_task and o.scope
@@ -93,9 +132,11 @@ def test_cue_checks():
     assert cue_ok("For this run only, drop the rows.", "one_off", "explicit")
     assert not cue_ok("Drop the rows.", "one_off", "explicit")
     assert not cue_ok("Drop the rows this time.", "one_off", "implicit")
-    assert cue_ok("The vendor file is broken today, skip the check.", "one_off", "implicit")
-    assert not cue_ok("Ideally, keep PRs small.", "preference", "implicit")
-    assert cue_ok("I'd rather keep the PRs small.", "preference", "implicit")
+    assert not cue_ok("The vendor file is broken today, skip the check.", "one_off", "implicit")
+    assert cue_ok("The vendor file has a broken header, skip the check.", "one_off", "implicit")
+    # Preferences use their explicit variant in every scenario, whatever the cue.
+    assert cue_ok("Ideally, keep PRs small.", "preference", "implicit")
+    assert not cue_ok("I'd rather keep the PRs small.", "preference", "implicit")
     # Markers match whole words only.
     assert not cue_ok("Commonly, drop the rows.", "one_off", "explicit")
 
@@ -190,17 +231,65 @@ def test_spec_example_shape(full):
     assert s.history[o1.turn].role == "user"
 
 
-def test_padding_is_tool_output_and_explicit_cues_show(full):
+def test_user_turns_are_items_old_values_neutral_turns_or_resolutions(full):
     for s in full:
+        d = DOMAINS[s.domain]
+        allowed = ({c.before for c in d.changes} | {u for u, _ in d.neutral}
+                   | {o.resolved[0] for o in d.one_offs if o.resolved})
         item_turns = {i.turn for i in s.items}
-        assert all(m.role != "user" for t, m in enumerate(s.history) if t not in item_turns
-                   and not any(m.content.startswith(prefix) for prefix in _before_texts(s.domain)))
+        extra = [m.content for t, m in enumerate(s.history) if m.role == "user" and t not in item_turns]
+        assert all(c in allowed for c in extra), s.id
+        neutral = [c for c in extra if c in {u for u, _ in d.neutral}]
+        assert 3 <= len(neutral) <= 6, s.id
         o1 = s.items[1]
         assert cue_ok(o1.text, "one_off", s.cue), (s.id, o1.text)
+        bank = next(o for o in d.one_offs if o.key == o1.key)
+        if bank.resolved:  # the reason for the one-off ends later in the history
+            turn = next(t for t, m in enumerate(s.history) if m.content == bank.resolved[0])
+            assert turn > o1.turn, s.id
 
 
-def _before_texts(domain):
-    return [c.before for c in DOMAINS[domain].changes]
+def test_explicit_flag_changes_only_the_one_off(full):
+    for s in full:
+        d = DOMAINS[s.domain]
+        bank = {p.key: (t, p) for t, p in d.entries()}
+        for item in s.items:
+            item_type, p = bank[item.key]
+            fixed = p.text(item_cue(item_type, s.cue))
+            assert item.text == fixed, (s.id, item.id)
+            if item.type != "one_off":
+                assert item.text == p.text(FIXED_CUE[item_type])
+
+
+def test_neutral_turns_are_placed_between_exchanges(full):
+    for s in full:
+        neutral = {u for u, _ in DOMAINS[s.domain].neutral}
+        for t, m in enumerate(s.history):
+            if m.content in neutral:
+                assert t > 1 and s.history[t + 1].role == "assistant", s.id  # answered, never first
+                assert s.history[t - 1].role in ("assistant", "tool"), s.id
+
+
+def test_templates_are_ids_of_the_one_off_and_used_three_times(full):
+    assert len({s.template for s in full}) == 80
+    assert set(Counter(s.template for s in full).values()) == {3}
+    for s in full:
+        o1 = next(i for i in s.items if i.type == "one_off")
+        j = int(s.template.split("-o")[1])
+        assert DOMAINS[s.domain].one_offs[j].key == o1.key
+    # Each template meets every length and every position once.
+    by_t = {}
+    for s in full:
+        by_t.setdefault(s.template, []).append(s)
+    for group in by_t.values():
+        assert {s.length for s in group} == set(LENGTHS) and {s.position for s in group} == set(POSITIONS)
+
+
+def test_no_hard_rule_blocks_the_probe_tool(full):
+    for s in full:
+        h1 = next(i for i in s.items if i.type == "hard_rule")
+        rule = next(p for p in DOMAINS[s.domain].hard_rules if p.key == h1.key)
+        assert s.probe.tool not in rule.blocks, s.id
 
 
 def test_long_histories_are_mostly_tool_output(full):
@@ -313,21 +402,20 @@ def test_pilot_port_matches_committed_fixture():
     for s in ported:
         assert validate(s) == [], s.id
         assert s.length == "short"
-        assert s.cue == ("implicit" if s.id in ("pilot-A", "pilot-C", "pilot-D") else "explicit")
+        assert s.cue == ("implicit" if s.id in ("pilot-A", "pilot-D") else "explicit")
         assert s.position == position(s, "o1")
         assert all(m.content and not m.content.startswith("Next, ") for m in s.history)
 
 
 def test_pilot_cues_follow_the_scope_words():
-    # B ("--force this time") and E ("For this run") state their scope outright; C's
-    # "the only slot they have" is not a scope word, so C stays implicit.
+    # B ("--force this time") and E ("For this run") state their scope outright; C's "the only
+    # slot they have" uses a scope word, which an implicit one-off may not, so C is explicit too.
     pilot = {s.id: s for s in load_pilot(ROOT / "pilot.md")}
-    assert pilot["pilot-B"].cue == pilot["pilot-E"].cue == "explicit"
+    assert pilot["pilot-B"].cue == pilot["pilot-C"].cue == pilot["pilot-E"].cue == "explicit"
     for s in pilot.values():
         o1 = next(i for i in s.items if i.type == "one_off")
-        if s.cue == "implicit" and s.id != "pilot-C":
+        if s.cue == "implicit":
             assert cue_ok(o1.text, "one_off", "implicit"), s.id
-    assert pilot["pilot-C"].cue == "implicit"
 
 
 def test_pilot_scenario_e():
@@ -370,3 +458,22 @@ def test_cli_generate_pilot(tmp_path):
     out = tmp_path / "pilot.jsonl"
     assert main(["generate", "--pilot", "--pilot-md", str(ROOT / "pilot.md"), "--out", str(out)]) == 0
     assert len(list(read_jsonl(out, Scenario))) == 25
+
+
+def test_validator_rejects_scope_words_in_implicit_one_offs_and_rules_in_other_turns(full):
+    s = Scenario.from_dict(next(x for x in full if x.cue == "implicit").to_dict())
+    assert validate(s) == []
+    o1 = next(i for i in s.items if i.type == "one_off")
+    for word in ("today", "just", "for now", "only"):
+        t = Scenario.from_dict(s.to_dict())
+        t.history[o1.turn].content = f"{word.capitalize()}, {o1.text}"
+        t.items[1].text = t.history[o1.turn].content
+        assert any("scope or temporal words" in e for e in validate(t)), word
+    # The same text is fine when the scenario's cue is explicit.
+    t.cue = "explicit"
+    assert not any("scope or temporal words" in e for e in validate(t))
+
+    neutral = next(t for t, m in enumerate(s.history) if m.content in {u for u, _ in DOMAINS[s.domain].neutral})
+    t = Scenario.from_dict(s.to_dict())
+    t.history[neutral].content = "Thanks. Always use tabs."
+    assert any(f"turn {neutral}: a user turn with no planted item" in e for e in validate(t))

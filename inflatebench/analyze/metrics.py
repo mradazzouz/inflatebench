@@ -1,7 +1,9 @@
 """Item-level table and the metrics in SPEC.md, "Metrics".
 
 Every metric is a ratio of per-scenario sums (numerator / denominator), which lets the
-bootstrap resample scenarios cheaply (see stats.ratio_ci).
+bootstrap resample cheaply (see stats.ratio_ci). Each scenario also carries its one-off
+template: scenarios built from the same template are not independent, so the bootstrap draws
+templates, and the regressions have a random intercept per template.
 """
 
 from __future__ import annotations
@@ -43,11 +45,13 @@ GENUINE = ("correct", "hardened", "softened")
 SPURIOUS = ("promoted", "widened", "request_promoted", "stale")
 
 
-FACTOR_COLUMNS = ["domain", "cue", "length", "position"]
+FACTOR_COLUMNS = ["template", "domain", "cue", "length", "position"]
 
 
 def scenario_factors(s: Scenario) -> dict[str, str | None]:
-    return {"domain": s.domain, "cue": s.cue, "length": s.length, "position": one_off_position(s)}
+    # Files written before templates were stored: each scenario is its own template.
+    return {"template": s.template or s.id, "domain": s.domain, "cue": s.cue, "length": s.length,
+            "position": one_off_position(s)}
 
 
 def item_frame(labels: Iterable[Label], scenarios: Iterable[Scenario],
@@ -96,9 +100,10 @@ def eligible(df: pd.DataFrame, kind: str) -> pd.Series:
 
 def per_scenario(df: pd.DataFrame, num: pd.Series, den: pd.Series,
                  by: list[str] = GROUP) -> pd.DataFrame:
-    """Sum numerator and denominator per group and scenario."""
-    tmp = df[by + ["scenario_id"]].assign(num=num.astype(float), den=den.astype(float))
-    return tmp.groupby(by + ["scenario_id"], as_index=False)[["num", "den"]].sum()
+    """Sum numerator and denominator per group and scenario (keeping each scenario's template)."""
+    keys = by + ["template", "scenario_id"]
+    tmp = df[keys].assign(num=num.astype(float), den=den.astype(float))
+    return tmp.groupby(keys, as_index=False)[["num", "den"]].sum()
 
 
 def type_counts(items: pd.DataFrame, kind: str, by: list[str] = GROUP) -> pd.DataFrame:
@@ -116,7 +121,10 @@ def precision_counts(items: pd.DataFrame, invented: pd.DataFrame,
     counts = per_scenario(items, genuine, genuine | spurious, by)
     if len(invented):
         inv = invented.groupby(by + ["scenario_id"], as_index=False)["invented"].sum()
-        counts = counts.merge(inv, on=by + ["scenario_id"], how="outer").fillna(0.0)
+        templates = items.drop_duplicates("scenario_id").set_index("scenario_id")["template"]
+        inv["template"] = inv["scenario_id"].map(templates)
+        keys = by + ["template", "scenario_id"]
+        counts = counts.merge(inv, on=keys, how="outer").fillna({"num": 0.0, "den": 0.0, "invented": 0.0})
         counts["den"] = counts["den"] + counts.pop("invented")
     return counts
 

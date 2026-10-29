@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from inflatebench.generate.banks import count_key
+from inflatebench.generate.banks import EXPLICIT_MARKERS, _has_marker, count_key, scope_words
 from inflatebench.generate.tools import TOOLS
 from inflatebench.schema import POSITIONS, Scenario
 
@@ -41,6 +41,18 @@ def validate(s: Scenario) -> list[str]:
         leaks = [t for t, args in TOOLS.items() if any(count_key(d, item.key) for d in args.values())]
         if leaks:
             errors.append(f"{item.id}: key {item.key!r} appears in the description of {leaks}")
+
+    one_off = next((i for i in s.items if i.type == "one_off"), None)
+    if one_off is not None and s.cue == "implicit" and (words := scope_words(one_off.text)):
+        # An implicit one-off takes its scope from the occasion it names, never from cue words.
+        errors.append(f"{one_off.id}: implicit one-off uses scope or temporal words {words}")
+    # User turns that carry no planted item (old values, neutral questions, the end of a one-off's
+    # reason) must not read as rules: none may use a rule or scope marker.
+    item_turns = {i.turn for i in s.items}
+    markers = tuple(m for ms in EXPLICIT_MARKERS.values() for m in ms)
+    for t, m in enumerate(s.history):
+        if m.role == "user" and t not in item_turns and _has_marker(m.content, markers):
+            errors.append(f"turn {t}: a user turn with no planted item uses a rule or scope marker")
 
     if s.probe.tool not in TOOLS:
         errors.append(f"probe tool {s.probe.tool!r} is not a known mock tool")

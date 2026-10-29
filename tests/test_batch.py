@@ -48,6 +48,8 @@ def config(tmp_path):
     write_jsonl(scenarios, [Scenario.from_dict(SCENARIO), Scenario.from_dict(other)])
     cfg = yaml.safe_load(Path("config.yaml").read_text())
     cfg["paths"].update(scenarios=str(scenarios), runs=str(tmp_path / "runs"), cache=str(tmp_path / "cache"))
+    # The phase counts below are for the five main conditions (the ablations add single calls).
+    cfg["conditions"] = ["free", "sectioned", "keep_rules", "extractor", "pinning"]
     path = tmp_path / "config.yaml"
     path.write_text(yaml.safe_dump(cfg))
     return path, tmp_path

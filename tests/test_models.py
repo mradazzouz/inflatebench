@@ -446,10 +446,11 @@ def test_compact_dry_run_estimates_cost(tmp_path, capsys):
 
     assert main(["--config", str(cfg_path), "compact", "--run-id", "r", "--dry-run", "--scenarios", str(scen)]) == 0
     out = capsys.readouterr().out
-    # 10 scenarios x (1+1+1+2+2) calls x 3 repeats; (1000 + 400) input and 1000 output tokens per call.
-    assert "model calls:   210" in out
-    assert "input tokens:  ~294,000" in out and "output tokens: ~210,000" in out
-    assert "$0.67 (batch discount applied)" in out  # (0.294 + 1.05) / 2
+    # 10 scenarios x (1+1+1+2+2+1+1) calls x 3 repeats; (1000 + 400) input and 1000 output
+    # tokens per call.
+    assert "model calls:   270" in out
+    assert "input tokens:  ~378,000" in out and "output tokens: ~270,000" in out
+    assert "$0.86 (batch discount applied)" in out  # (0.378 + 1.35) / 2
 
     assert main(["--config", str(cfg_path), "compact", "--run-id", "r", "--dry-run", "--scenarios", str(scen),
                  "--model", "strong", "--condition", "free"]) == 0

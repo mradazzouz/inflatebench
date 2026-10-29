@@ -19,6 +19,23 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+# Stop reasons that mean the reply was cut off by the token limit (Anthropic, OpenAI-compatible).
+TRUNCATED = frozenset({"max_tokens", "length"})
+
+
+class ReplyError(RuntimeError):
+    """A reply that must not be cached or counted: empty, or cut off by max_tokens."""
+
+
+def reply_problem(completion: Completion) -> str | None:
+    """Why a completion is unusable, or None. An empty or truncated summary, verdict or agent
+    turn would otherwise be stored and scored as if the model had answered in full."""
+    if completion.stop_reason in TRUNCATED:
+        return f"reply cut off at the token limit (stop_reason {completion.stop_reason!r}); raise max_tokens"
+    if not completion.text.strip():
+        return "empty reply"
+    return None
+
 
 def _write_atomic(path: Path, record: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -106,15 +123,22 @@ class CachedLLM:
     def complete(self, messages: list[Message], **kw: Any) -> Completion:
         return self.complete_request(self.request(messages, **kw))
 
+    def check(self, completion: Completion) -> Completion:
+        """The completion, or ReplyError when it is empty or truncated (never cached or used)."""
+        problem = reply_problem(completion)
+        if problem:
+            raise ReplyError(f"{self.model}: {problem}")
+        return completion
+
     def complete_request(self, request: Request) -> Completion:
         """complete() for a prepared request, whatever cache label (request.model) it carries."""
         request = replace(request, settings=dict(self.settings))
         hit = self.cache.get(request)
         if hit is not None:
-            hit = replace(hit, cached=True)
+            hit = replace(self.check(hit), cached=True)
             self.usage.record(hit, request.key())
             return hit
-        completion = self.llm.complete(request.messages, **request.params)
+        completion = self.check(self.llm.complete(request.messages, **request.params))
         self.cache.put(request, completion)
         self.usage.record(completion, request.key())
         return completion
@@ -142,7 +166,7 @@ class CachedLLM:
         for r in requests:
             hit = self.cache.get(r)
             if hit is not None:
-                out[r.key()] = replace(hit, cached=True)
+                out[r.key()] = replace(self.check(hit), cached=True)
                 self.usage.record(out[r.key()], r.key())
             else:
                 missing[r.key()] = r
@@ -192,6 +216,13 @@ class CachedLLM:
                 log.warning("batch %s: request %s failed: %s", handle.id, k[:12], res)
                 if not res.retryable and k in missing:
                     fatal.append(f"{k[:12]}: {res}")
+                continue
+            problem = reply_problem(res)
+            if problem:
+                # Paid for, but unusable; resubmitting the same request would fail the same way.
+                log.warning("batch %s: request %s: %s", handle.id, k[:12], problem)
+                if k in missing:
+                    fatal.append(f"{k[:12]}: {problem}")
                 continue
             self.cache.put(r, res)
             self.usage.record(res, k, batch_id=handle.id)

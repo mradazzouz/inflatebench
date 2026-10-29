@@ -12,9 +12,10 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
-CONDITION_ORDER = ("free", "sectioned", "keep_rules", "extractor", "pinning")
+CONDITION_ORDER = ("free", "sectioned", "keep_rules", "extractor", "pinning", "free_limited",
+                   "sectioned_noconstraints", "full")
 # Categorical slots in fixed order; a condition keeps its colour whichever subset is plotted.
-PALETTE = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948")
+PALETTE = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#52514e")
 SURFACE, INK, INK_2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e4e3df"
 
 

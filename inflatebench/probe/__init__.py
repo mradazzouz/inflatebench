@@ -2,11 +2,12 @@
 
 from inflatebench.probe.agent import MAX_STEPS, Episode, build_messages, parse_calls, run_agent
 from inflatebench.probe.check import call_inflated, inflated, matches, resolve
-from inflatebench.probe.run import probe_run, probe_summaries, probe_summary
+from inflatebench.probe.run import FULL, probe_context, probe_full, probe_run, probe_summaries, probe_summary
 from inflatebench.probe.tools import DOMAIN_TOOLS, call_tool, describe, tools_for
 
 __all__ = [
     "DOMAIN_TOOLS",
+    "FULL",
     "MAX_STEPS",
     "Episode",
     "build_messages",
@@ -16,6 +17,8 @@ __all__ = [
     "inflated",
     "matches",
     "parse_calls",
+    "probe_context",
+    "probe_full",
     "probe_run",
     "probe_summaries",
     "probe_summary",

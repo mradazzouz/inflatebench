@@ -8,6 +8,7 @@ import pytest
 
 from conftest import INFLATE_P, synthetic_run
 from inflatebench.analyze import analyze, analyze_run, mixed_logit, ratio_ci
+from inflatebench.analyze.stats import diff_ci
 from inflatebench.analyze import metrics as m
 from inflatebench.analyze.report import behaviour_rates, inflation_rates, precision_recall
 from inflatebench.generate.validate import position
@@ -111,8 +112,9 @@ def test_mixed_logit_finds_condition_effect(pilot):
     coef = res.set_index("term")["coef"]
     term = "C(condition, Treatment(reference='free'))[T.pinning]"
     assert coef[term] > 1.0  # planted: 0.10 vs 0.60 inflation probability, log-odds ~2.6
-    assert res.set_index("term").loc["scenario_id", "effect"] == "random_log_sd"
-    assert res.attrs["formula"].endswith("+ (1 | scenario_id)")
+    terms = res.set_index("term")
+    assert terms.loc["scenario_id", "effect"] == terms.loc["template", "effect"] == "random_log_sd"
+    assert res.attrs["formula"].endswith("+ (1 | scenario_id) + (1 | template)")
     assert "C(model)[T.m-b]" in coef and "C(cue, Treatment(reference='explicit'))[T.implicit]" in coef
     assert "C(position, Treatment(reference='early'))[T.late]" in coef
     assert "position" in res.attrs["formula"]
@@ -214,3 +216,67 @@ def test_analyze_without_probes_or_variation(tmp_path, pilot):
 def test_synthetic_inflate_probabilities_are_ordered():
     # Guards the fixture assumptions the tests above rely on.
     assert list(INFLATE_P.values()) == sorted(INFLATE_P.values())
+
+
+def test_bootstrap_resamples_templates_not_scenarios():
+    # Two templates of 10 scenarios each: one always inflated, one never. Drawn by scenario, the
+    # interval would be narrow; drawn by template, a replicate holds 0, 1 or 2 copies of each.
+    counts = pd.DataFrame({"g": ["a"] * 20, "scenario_id": [f"s{k}" for k in range(20)],
+                           "template": ["t0"] * 10 + ["t1"] * 10,
+                           "num": [1.0] * 10 + [0.0] * 10, "den": [1.0] * 20})
+    by_template = ratio_ci(counts, ["g"], n_boot=500).iloc[0]
+    by_scenario = ratio_ci(counts.drop(columns="template"), ["g"], n_boot=500).iloc[0]
+    assert by_template["rate"] == by_scenario["rate"] == 0.5
+    assert (by_template["clusters"], by_template["scenarios"]) == (2, 20)
+    assert by_scenario["clusters"] == 20
+    assert by_template["hi"] - by_template["lo"] > 2 * (by_scenario["hi"] - by_scenario["lo"])
+    assert by_template["lo"] == 0.0 and by_template["hi"] == 1.0
+
+
+def test_diff_ci_is_paired_against_the_baseline():
+    rows = []
+    for k in range(30):
+        t = f"t{k % 10}"
+        base = float(k % 3 == 0)  # baseline rate 1/3
+        rows += [{"condition": "full", "model": "m", "scenario_id": f"s{k}", "template": t,
+                  "num": base, "den": 1.0},
+                 # 'up' adds exactly 0.2 per scenario on top of the baseline, so the paired
+                 # difference is the same in every replicate.
+                 {"condition": "up", "model": "m", "scenario_id": f"s{k}", "template": t,
+                  "num": base + 0.2, "den": 1.0}]
+    d = diff_ci(pd.DataFrame(rows), "full", n_boot=200).iloc[0]
+    assert d["condition"] == "up" and d["diff"] == pytest.approx(0.2)
+    assert d["diff_lo"] == pytest.approx(0.2) and d["diff_hi"] == pytest.approx(0.2)
+    assert diff_ci(pd.DataFrame(rows), "missing").empty
+
+
+def test_behaviour_reports_compaction_induced_rate_against_full_history():
+    scen = list(read_jsonl(Path(__file__).parent / "fixtures" / "scenarios.jsonl", Scenario))[:2]
+    probes = []
+    for s in scen:
+        for rep in range(2):
+            probes.append(ProbeResult(s.id, "full", "x", rep, probe_called=True, inflated=rep == 0))
+            probes.append(ProbeResult(s.id, "pinning", "x", rep, probe_called=True, inflated=True))
+    beh = behaviour_rates(m.probe_frame(probes, scen), n_boot=50).set_index("condition")
+    assert beh.loc["full", "rate"] == 0.5 and beh.loc["pinning", "rate"] == 1.0
+    assert beh.loc["pinning", "induced"] == pytest.approx(0.5)
+    assert beh.loc["pinning", "induced_when_called"] == pytest.approx(0.5)
+    assert np.isnan(beh.loc["full", "induced"])  # the baseline has no difference of its own
+    # The behaviour regression compares conditions with the full-history baseline.
+    from inflatebench.analyze.report import regressions
+
+    many = [replace(p, scenario_id=s.id) for s in scen for p in probes if p.scenario_id == s.id]
+    df = m.probe_frame(many, scen)
+    res = regressions(m.item_frame([], scen), df)["behaviour"]
+    assert any("reference='full'" in t for t in res["term"])
+
+
+def test_robustness_tables_also_exclude_off_type_labels(tmp_path, pilot):
+    s = pilot[0]
+    labels = labels_for(s, {"h1": "correct", "c1": "correct", "o1": "promoted", "s1": "correct",
+                            "r1": "correct", "r2": "correct"})
+    labels = [replace(l, type_flagged=True) if l.item_id == "o1" else l for l in labels]
+    summary = analyze(labels, pilot, None, tmp_path / "rep", n_boot=10, figures=False)
+    robust = {r["type"]: r for r in summary["robustness_unflagged"]["inflation_rates"]}
+    assert robust["promoted"]["den"] == 0 and summary["robustness_unflagged"]["excluded_labels"] == 1
+    assert summary["type_flags"][FINAL] == {"labels": 6, "flagged": 1, "rate": 1 / 6}

@@ -149,7 +149,11 @@ def _compact(args: argparse.Namespace) -> int:
     cfg = load_config(args.config)
     if args.model not in cfg["models"]:
         raise SystemExit(f"ib compact: no model {args.model!r} in config; have {sorted(cfg['models'])}")
-    conditions = [get_condition(n) for n in args.condition or cfg["conditions"]]
+    names = args.condition or cfg["conditions"]
+    if len(set(names)) != len(names):
+        # Each would be written again under the same key and counted twice by every later stage.
+        raise SystemExit(f"ib compact: conditions listed more than once: {names}")
+    conditions = [get_condition(n) for n in names]
     path = Path(args.scenarios or cfg["paths"]["scenarios"])
     if not path.exists():
         raise SystemExit(f"ib compact: {path} not found; run ib generate or pass --scenarios")
@@ -267,7 +271,7 @@ def _judge_llm(cfg: dict[str, Any], ref: Any, usage: Any, no_batch: bool = False
 
 
 def _judge(args: argparse.Namespace) -> int:
-    from inflatebench.judge import FINAL, LLMJudge, PanelJudge, judge_run, quote_flag_rates
+    from inflatebench.judge import FINAL, LLMJudge, PanelJudge, judge_run, quote_flag_rates, type_flag_rates
     from inflatebench.judge.run import QUOTE_FLAG_LIMIT
     from inflatebench.models import CachedLLM, Deferred, DiskCache, FakeLLM
 
@@ -295,14 +299,18 @@ def _judge(args: argparse.Namespace) -> int:
         raise SystemExit(f"ib judge: {e}") from None
     out = judge_run(panel, scenarios, run_dir)
     flags = quote_flag_rates(read_jsonl(out, Label))
+    type_flags = type_flag_rates(read_jsonl(out, Label))
     _stage_info(run_dir / "judge.json", {
         "scenarios": str(scenarios),
         "judges": [{"name": j.name, "role": role, "settings": j.llm.llm.settings, "batch": j.llm.batch}
                    for j, role in zip(panel.judges, ("first", "second", "tiebreak"))],
-        "usage": usage.summary(), "quote_flags": flags, "quote_flag_limit": QUOTE_FLAG_LIMIT})
+        "usage": usage.summary(), "quote_flags": flags, "quote_flag_limit": QUOTE_FLAG_LIMIT,
+        "type_flags": type_flags})
     final = flags.get(FINAL, {"rate": 0.0})
+    final_types = type_flags.get(FINAL, {"rate": 0.0})
     print(f"wrote labels to {out} ({usage.calls} judge calls, {usage.cache_hits} from cache, "
-          f"${usage.cost:.4f}; {final['rate']:.1%} of final quotes not found in the summary)")
+          f"${usage.cost:.4f}; {final['rate']:.1%} of final quotes not found in the summary, "
+          f"{final_types['rate']:.1%} of final labels not allowed for their item type)")
     if final["rate"] > QUOTE_FLAG_LIMIT:
         print(f"warning: the flag rate is above {QUOTE_FLAG_LIMIT:.0%}; fix the judge instructions "
               "before the main run", file=sys.stderr)
@@ -325,9 +333,11 @@ def _probe(args: argparse.Namespace) -> int:
         llm, name = _make_llm(cfg, key, fake=False, stage="probe")
     usage = _usage(run_dir / "probe_calls.jsonl")
     agent = CachedLLM(llm, DiskCache(cfg["paths"]["cache"]), model=f"{name}#agent", usage=usage)
-    out = probe_run(agent, scenarios, run_dir, agent_name=name, max_steps=args.max_steps)
+    out = probe_run(agent, scenarios, run_dir, agent_name=name, max_steps=args.max_steps,
+                    full=not args.no_full)
     _stage_info(run_dir / "probe.json", {"scenarios": str(scenarios), "agent": name,
                                          "settings": agent.settings, "max_steps": args.max_steps,
+                                         "full_history_baseline": not args.no_full,
                                          "usage": usage.summary()})
     print(f"wrote probes to {out} ({usage.calls} agent calls, {usage.cache_hits} from cache, "
           f"${usage.cost:.4f})")
@@ -393,6 +403,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--scenarios", default=None, help=scen_help)
     p.add_argument("--model", default=None, help="agent model key from config (default: config agent)")
     p.add_argument("--max-steps", type=int, default=8, help="agent replies per probe")
+    p.add_argument("--no-full", action="store_true",
+                   help="skip the full-history baseline (the agent acting on the uncompacted history)")
     p.add_argument("--fake", action="store_true", help="use a fake agent instead of a provider")
 
     p = sub.add_parser("analyze", help="write runs/<run_id>/report/")

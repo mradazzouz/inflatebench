@@ -38,7 +38,9 @@ def run(name, history=HISTORY):
 
 
 def test_registry_matches_config():
-    assert list(CONDITIONS) == ["free", "sectioned", "keep_rules", "extractor", "pinning"]
+    assert list(CONDITIONS) == ["free", "sectioned", "keep_rules", "extractor", "pinning", "free_limited",
+                                "sectioned_noconstraints"]
+    assert list(CONDITIONS) == yaml.safe_load(open("config.yaml"))["conditions"]
     assert all(get_condition(n).name == n for n in CONDITIONS)
     with pytest.raises(ValueError):
         get_condition("nope")
@@ -175,14 +177,15 @@ def test_ib_compact_with_fake_writes_every_condition_and_repeat(config):
     path, tmp = config
     assert main(["--config", str(path), "compact", "--run-id", "r1", "--fake", "--repeats", "2"]) == 0
     summaries = list(read_jsonl(tmp / "runs/r1/summaries.jsonl", Summary))
-    assert len(summaries) == 2 * 5 * 2
+    assert len(summaries) == 2 * 7 * 2
     assert {(s.scenario_id, s.condition, s.repeat) for s in summaries} == {
         (sid, c, r) for sid in ("pilot-01", "pilot-02") for c in CONDITIONS for r in range(2)
     }
     assert all(s.model == "fake" and s.text.startswith(prompt("summary_header")) for s in summaries)
     calls = [json.loads(line) for line in (tmp / "runs/r1/calls.jsonl").read_text().splitlines()]
-    # One call each for free, sectioned, keep_rules; two each for extractor, pinning.
-    assert len(calls) == 2 * 2 * (3 + 2 + 2)
+    # One call each for free, sectioned, keep_rules and the two ablations; two each for
+    # extractor and pinning.
+    assert len(calls) == 2 * 2 * (5 + 2 + 2)
     assert {"model", "date", "input_tokens", "output_tokens"} <= set(calls[0])
 
 
@@ -230,3 +233,19 @@ def test_sectioned_extractor_and_pinning_share_one_summary_per_repeat(tmp_path):
     for repeat in range(2):
         assert texts["sectioned", repeat] == texts["extractor", repeat] == texts["pinning", repeat]
     assert texts["sectioned", 0] != texts["sectioned", 1]  # repeats are fresh samples
+
+
+def test_ablations_change_one_thing_each():
+    """free_limited is free plus the word limit; sectioned_noconstraints is sectioned minus the
+    Constraints & Preferences section, with the same limit."""
+    free, sectioned = prompt("free"), prompt("sectioned")
+    limit = "Keep the whole summary under 250 words."
+    assert limit in sectioned and limit not in free
+    assert prompt("free_limited") == free.replace("Reply with the summary only", limit + " Reply with the summary only")
+    section = "## Constraints & Preferences\nRequirements and preferences the user has expressed.\n\n"
+    assert prompt("sectioned_noconstraints") == sectioned.replace(section, "").replace("five headings", "four headings")
+    assert "Constraints" not in prompt("sectioned_noconstraints") and limit in prompt("sectioned_noconstraints")
+    for name in ("free_limited", "sectioned_noconstraints"):
+        messages, llm = run(name)
+        assert len(llm.calls) == 1 and llm.calls[0][0].content == prompt(name)
+        assert messages[0].content.startswith(prompt("summary_header"))

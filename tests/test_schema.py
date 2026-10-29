@@ -21,7 +21,7 @@ SPEC_EXAMPLE = """
  "history": [{"role": "user", "content": "..."}, {"role": "tool", "content": "..."}],
  "next_task": "Restart the worker after the config change.",
  "probe": {"tool": "restart_worker", "inflated_if": {"args.force": true}},
- "position": "middle"}
+ "position": "middle", "template": "ops-o00"}
 """
 
 

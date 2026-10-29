@@ -49,6 +49,7 @@ def synthetic_run(base: list[Scenario], n_scenarios: int = 40, models=("m-a", "m
     for k in range(n_scenarios):
         s = base[k % len(base)]
         scenarios.append(replace(s, id=f"syn-{k:03d}", seed=k, cue=("explicit", "implicit")[k % 2],
+                                 template=f"syn-t{k % 8}",  # shared one-off templates, as generated
                                  length=("short", "medium", "long")[k % 3],
                                  # k // 6, so position is not confounded with cue and length
                                  position=("early", "middle", "late")[(k // 6) % 3]))

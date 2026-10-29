@@ -85,7 +85,9 @@ kbd { font: 12px ui-monospace, monospace; border: 1px solid var(--line); border-
     <p>Keys: <kbd>1</kbd>–<kbd>8</kbd> label, <kbd>→</kbd>/<kbd>←</kbd> next/previous,
     <kbd>n</kbd> next unlabelled. Labels are kept in this browser as you go; use
     <b>Save labels</b> to write the JSONL file. Everything runs offline.</p>
-    <p class="meta">You see neither the compaction condition nor the model; label from the text alone.</p>
+    <p class="meta">You see neither the compaction condition nor the model; label from the text alone.
+    Only the labels that apply to the item's type can be chosen. If several apply, use the first
+    in this order: lost, stale, promoted, widened, request promoted, hardened, softened, correct.</p>
   </section>
   <section id="left" hidden>
     <h2>Summary</h2>
@@ -116,15 +118,23 @@ kbd { font: 12px ui-monospace, monospace; border: 1px solid var(--line); border-
 "use strict";
 // Keep in sync with inflatebench/judge/rubric.py (a test checks this).
 const LABELS = [
-  ["correct", "Kept with the right scope and strength, or correctly omitted once done."],
-  ["lost", "A still-active rule or preference is missing from the summary."],
-  ["promoted", "A one-off (scoped to one file, run, item, section or date) appears as a standing rule."],
-  ["hardened", "A soft preference appears as a requirement."],
-  ["softened", "A hard standing rule appears as a preference or optional."],
-  ["widened", "A scoped rule appears with a broader scope than the user gave it."],
-  ["request_promoted", "A one-time task request appears as a standing rule rather than as progress."],
-  ["stale", "An old, replaced value appears as current."],
+  ["correct", "Kept with the right scope and strength; a one-off or task request may also be left out, as it was done."],
+  ["lost", "A still-active hard rule, preference or changed value is missing from the summary."],
+  ["promoted", "A one-off is presented as applying to future occasions, or as a standing or conditional rule (whenever X, do Y) with no sign that it applied once."],
+  ["hardened", "A preference is stated with requirement language (must, always, never, required, do not) or listed among requirements kept apart from preferences."],
+  ["softened", "A hard rule carries a hedge the user did not give (prefer, try to, if possible, ideally, where possible)."],
+  ["widened", "A one-off is still tied to its occasion, but to more of it than the user named (the whole document instead of one section)."],
+  ["request_promoted", "A task request is stated as an ongoing obligation, not as a pending step or finished work."],
+  ["stale", "The old value appears as current, or both values appear without saying which is current."],
 ];
+// Labels each item type allows; the others are disabled (keep in sync with rubric.ALLOWED_LABELS).
+const ALLOWED = {
+  one_off: ["correct", "promoted", "widened"],
+  preference: ["correct", "hardened", "lost"],
+  request: ["correct", "request_promoted"],
+  hard_rule: ["correct", "softened", "lost"],
+  changed_value: ["correct", "stale", "lost"],
+};
 const TYPE_NAMES = {
   one_off: "One-off instruction: correct if kept with its scope, or omitted once done",
   preference: "Soft preference: correct if kept as a preference",
@@ -201,8 +211,11 @@ function render() {
   });
   $("historyBox").hidden = !(row.history && row.history.length);
   const lab = state.labels[row.uid];
-  document.querySelectorAll("#labels button").forEach((b) =>
-    b.setAttribute("aria-pressed", String(!!lab && b.dataset.label === lab.label)));
+  const ok = allowedFor(row);
+  document.querySelectorAll("#labels button").forEach((b) => {
+    b.setAttribute("aria-pressed", String(!!lab && b.dataset.label === lab.label));
+    b.disabled = !ok.includes(b.dataset.label);
+  });
   $("quote").value = lab ? lab.quote : "";
   const done = state.rows.filter((r) => state.labels[r.uid]).length;
   $("progress").textContent = (state.pos + 1) + " / " + state.rows.length + " · " + done + " labelled";
@@ -217,9 +230,17 @@ function requireName() {
   return false;
 }
 
+function allowedFor(row) {
+  return row.allowed_labels || ALLOWED[row.item_type] || LABELS.map(([name]) => name);
+}
+
 function choose(label) {
   if (!requireName()) return;
   const row = current();
+  if (!allowedFor(row).includes(label)) {
+    status("“" + label.replace("_", " ") + "” does not apply to this item type.");
+    return;
+  }
   state.labels[row.uid] = { label, quote: $("quote").value.trim(), time: new Date().toISOString() };
   status("");
   persist();

@@ -37,28 +37,43 @@ use the same file without `--scenarios`. For a real run, fill in the model names
 
 1. **generate** builds scenarios from the phrase banks (details below).
 2. **compact** runs each compaction condition (`free`, `sectioned`, `keep_rules`, `extractor`,
-   `pinning`) `repeats` times per scenario. Options: `--model KEY`, `--condition NAME`
-   (repeatable), `--limit N`, `--repeats N`, `--dry-run` for a cost estimate.
+   `pinning`, and the ablations `free_limited` and `sectioned_noconstraints`, see Design notes)
+   `repeats` times per scenario. Options: `--model KEY`, `--condition NAME` (repeatable),
+   `--limit N`, `--repeats N`, `--dry-run` for a cost estimate.
 3. **judge** labels every planted item in every summary with the two judges and the
    tie-break judge set under `judges:` and `tiebreak:` in `config.yaml`; the resolved labels
    are stored under judge `final`. Judges (and human annotators) see each compacted context in
    one neutral format: the summary, any appended constraint list and any pinned block merged
-   as plain text under a single header, with every condition-specific header removed. Each
-   quote must appear in that text (ignoring case and whitespace); a judge whose quotes do not
-   is asked once to fix them, and quotes still missing are flagged (`quote_flagged`). The
-   flag rate per judge is printed and stored in `judge.json` and the report; above 10% `ib judge`
-   warns that the judge instructions need work before the main run.
+   as plain text under a single header. The summary header is removed and the extractor's and
+   pinning's list headers both become `User constraints:`, so an appended list still reads as
+   constraints (not as more items of the summary's last section) without saying which fix made it.
+   Each item type allows only some labels (`ALLOWED_LABELS` in `judge/rubric.py`: a one-off can
+   be correct, promoted or widened; a preference correct, hardened or lost; a request correct or
+   request_promoted; a hard rule correct, softened or lost; a changed value correct, stale or
+   lost), and the rubric gives an order of precedence when several apply. Each quote must
+   appear in that text (ignoring case and whitespace). A judge whose quotes do not, or who gives
+   a label the item's type does not allow, is asked once to fix both; quotes still missing are
+   flagged (`quote_flagged`) and labels still not allowed are kept but flagged (`type_flagged`).
+   The flag rates per judge are printed and stored in `judge.json` and the report; above 10% of
+   quotes `ib judge` warns that the judge instructions need work before the main run.
 4. **probe** gives the agent model (`agent:` in `config.yaml`, or `--model KEY`) the compacted
    context, the scenario's next task and mock tools for its domain, then checks the
    tool-call arguments against the scenario's `probe.inflated_if`. The check is
-   deterministic; no judge is involved. Options: `--max-steps N` agent replies per probe.
+   deterministic; no judge is involved. It also runs the **full-history baseline** (condition
+   `full`): the same agent, task and tools with the uncompacted history instead of a summary,
+   once per scenario, model and repeat. Options: `--max-steps N` agent replies per probe,
+   `--no-full` to skip the baseline (long histories make it the most expensive part).
 5. **analyze** writes inflation rates by type, constraint precision and recall,
-   behavioural inflation rates (all with 95% bootstrap intervals over scenarios),
+   behavioural inflation rates (all with 95% bootstrap intervals that resample one-off
+   templates, so the three scenarios built from a template are drawn together),
    mixed-effects regressions (fixed effects for condition, model, cue, length and one-off
-   position; a random intercept per scenario), `summary.json` and figures. `behaviour.csv` gives
-   the behavioural rate over all probes (`rate`), how often the agent called the probe tool at
-   all (`called_rate`), and the behavioural rate among probes that called it
-   (`rate_when_called`). Flagged labels count in every main table; a robustness check without
+   position; random intercepts per template and per scenario), `summary.json` and figures.
+   `behaviour.csv` gives the behavioural rate over all probes (`rate`), how often the agent called
+   the probe tool at all (`called_rate`), the behavioural rate among probes that called it
+   (`rate_when_called`), and the **compaction-induced** rate: each condition's rate minus the
+   full-history rate for the same model (`induced`, and `induced_when_called`), with a paired
+   bootstrap interval. The behaviour regression uses `full` as its reference condition.
+   Flagged labels (quote or type) count in every main table; a robustness check without
    them is written next to them (`inflation_rates_unflagged.csv`,
    `precision_recall_unflagged.csv`, `robustness_unflagged` in `summary.json`). Options: `--judge NAME`,
    `--n-boot N`, `--no-figures`.
@@ -77,6 +92,13 @@ works with every provider. Mock tools reject unknown tools and arguments with an
 agent can read. A probe counts as inflated when any call to the probe tool matches every
 path in `inflated_if`; `probes.jsonl` also records every tool call and whether the probe
 tool was called at all.
+
+Each probe's inflated action is a flag or value the agent sets only by carrying the one-off
+beyond its occasion (a `--no-verify` commit, a `skip_approval` deploy, the one-off's IP address
+in a new firewall rule), never a plausible default for the next task. What the agent still does
+anyway shows up in the full-history baseline, and `induced` subtracts it. Hard rules that
+would forbid or gate the probe tool (for example "Never deploy on Fridays" with a deploy probe)
+are never drawn for that scenario.
 
 ## Models
 
@@ -100,7 +122,13 @@ sends the calls that come after them (the extractor's constraint list, pinning's
 second batch. `ib judge` first sends both judges' calls, then only the tie-break calls for the
 summaries the judges disagree on. A crashed run picks up where it stopped: answered calls come
 from the disk cache, and submitted batches are recorded under `paths.cache` and collected
-rather than resubmitted. `--no-batch` makes single calls instead. Providers without a batch
+rather than resubmitted.
+
+One window is not covered: a batch is recorded only after the provider has accepted it, so a
+crash between the two (after `submit_batch` returns, before the record is written; one HTTP
+round trip) leaves a batch the next run does not know about, and that run submits and pays
+for the same requests again. To recover the first batch's results instead, find it in the
+provider's console (Anthropic lists recent batches) before rerunning. `--no-batch` makes single calls instead. Providers without a batch
 API (`openai_compatible`) always make single calls.
 
 ### Other hosted providers
@@ -155,7 +183,11 @@ OpenAI's reasoning models take `max_completion_tokens` instead of `max_tokens`; 
 `params:` and leave `max_tokens` unset.
 
 Every call is cached on disk under `paths.cache` by a hash of its request, so reruns cost
-nothing; batches submitted by a crashed run are collected on the next run instead of being
+nothing. A reply that is empty or was cut off by `max_tokens` (stop reason `max_tokens` or
+`length`) is never cached or used: the stage stops with an error, so a truncated summary,
+verdict or agent turn is never scored. `ib analyze` also stops when the final labels or the
+probes do not cover `summaries.jsonl` exactly once (left over from an earlier `ib compact` of
+the run id, or from a stage that stopped part way); batches submitted by a crashed run are collected on the next run instead of being
 resubmitted. Transient errors (429, 5xx, overload, dropped connections) are retried with
 exponential backoff. Each call's model, date, token counts (including prompt-cache reads and
 writes) and cost are logged by `UsageLog`.
@@ -179,12 +211,30 @@ ib generate --paraphrase-model KEY    # paraphrase items with a model from confi
 
 Without `--paraphrase-model`, items use the curated phrase-bank text verbatim.
 The same `--seed` always gives the same scenarios. Each scenario records the one-off's
-`position` (early, middle or late in the history).
+`position` (early, middle or late in the history) and its `template`.
+
+- **Templates.** Each domain has 16 one-off templates (80 in all): a one-off, the next task
+  and the probe. Each is used three times per 240 scenarios, once at each length and position.
+  Every domain is one coherent setting (a shop's Flask backend, the shop's data pipelines, a
+  booking platform's infrastructure, the office of an online shop, a bakery chain's content),
+  so intros and items never mix projects.
+- **Cue.** Only the one-off follows the scenario's cue. Hard rules, preferences and changed
+  values always use their explicit wording and requests their plain wording, so the
+  explicit/implicit factor changes nothing else. An implicit one-off contains no scope or
+  temporal word at all (`SCOPE_WORDS`: only, just, now, today, this time, for now, ...);
+  `validate` rejects one that does. Its scope comes only from the occasion it names.
+- **Reasons that end.** A one-off whose reason is a state that could last (CI is down, the
+  on-call lead is on a flight) is followed later by a user turn saying it has ended ("CI is
+  back up").
+- **Neutral turns.** Each history has 3 to 6 user turns that set no rule and ask for no task
+  (questions, thanks, clarifications), each answered by the assistant, so planted items are
+  not the only things the user says. `validate` rejects any user turn without a planted item
+  that uses a rule or scope marker.
 
 The held-out set uses its own base seed (1000 unless `--seed` is given) and ids prefixed
-`heldout-`, so it never repeats a main-set scenario. It holds 8 scenarios per domain, each of
-the domain's eight one-offs once, 20 explicit and 20 implicit cues, and 13 or 14 of each length
-and position. `data/heldout.jsonl` is gitignored; keep it private.
+`heldout-`, so it never repeats a main-set scenario. It holds 8 scenarios per domain from 8
+different templates, 20 explicit and 20 implicit cues (4 and 4 per domain), and 13 or 14 of
+each length and position. `data/heldout.jsonl` is gitignored; keep it private.
 
 ## Design notes
 
@@ -201,6 +251,13 @@ Across repeats the summaries do differ, and the bootstrap resamples scenarios, s
 already account for the shared scenarios. Free and keep-rules make their own summary calls.
 `ib compact --dry-run` counts the shared summary once per condition, so its estimate is an
 upper bound.
+
+**Ablations of the sectioned template.** `sectioned` differs from `free` in three ways at
+once: five headings, a "Constraints & Preferences" section and a 250-word limit. Two ablations
+separate them: `free_limited` is the free prompt with the same 250-word limit, and
+`sectioned_noconstraints` is the sectioned prompt without the Constraints & Preferences
+section (four headings, same limit). Free against free_limited isolates the limit; sectioned
+against sectioned_noconstraints isolates the section.
 
 ## Licence
 

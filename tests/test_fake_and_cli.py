@@ -41,4 +41,5 @@ def test_cli_requires_a_subcommand():
 def test_config_loads():
     cfg = load_config("config.yaml")
     assert cfg["repeats"] == 3
-    assert cfg["conditions"] == ["free", "sectioned", "keep_rules", "extractor", "pinning"]
+    assert cfg["conditions"] == ["free", "sectioned", "keep_rules", "extractor", "pinning", "free_limited",
+                                 "sectioned_noconstraints"]

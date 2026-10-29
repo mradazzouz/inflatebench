@@ -5,7 +5,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, replace
 
-from inflatebench.generate.banks import Domain, Phrase, count_key, cue_ok
+from inflatebench.generate.banks import Domain, Phrase, count_key, cue_ok, item_cue
 from inflatebench.generate.domains import DOMAINS
 from inflatebench.generate.paraphrase import Paraphraser
 from inflatebench.generate.padding import rows_for
@@ -18,6 +18,8 @@ POSITION_TARGET = {"early": 1 / 6, "middle": 1 / 2, "late": 5 / 6}  # share of t
 MAX_ATTEMPTS = 40
 MIN_BLOCK = 150  # leftover padding budget (chars) too small for a block
 PER_DOMAIN = 48  # factor design repeats every 48 scenarios
+TEMPLATES = 16  # one-off templates (one-off, next task, probe) per domain
+NEUTRAL_TURNS = (3, 6)  # neutral user exchanges per scenario, inclusive
 
 
 class GenerationError(RuntimeError):
@@ -27,12 +29,17 @@ class GenerationError(RuntimeError):
 def factors(index: int) -> tuple[str, str, str]:
     """(length, cue, position) for the index-th scenario of a domain.
 
-    Each block of 8 fixes length and cue; positions rotate across blocks, so over
-    48 scenarios every length gets 16, every cue 24 and every position 16, and
-    each of the 8 one-offs (chosen by index % 8) meets every length, cue and position.
+    Template j = index % 16 is used three times (k = 0, 1, 2) per 48 scenarios, once at each
+    length and once at each position, with cues 2:1 one way or the other. Over 48 scenarios
+    every length and position gets 16, every cue 24, every length-cue and cue-position cell 8,
+    and every length-position cell 4 to 6.
     """
-    block, j = divmod(index % PER_DOMAIN, 8)
-    return LENGTHS[block % 3], CUES[block // 3], POSITIONS[(j + block) % 3]
+    k, j = divmod(index % PER_DOMAIN, TEMPLATES)
+    return LENGTHS[k], CUES[(j + k) % 2], POSITIONS[(k + j // 2) % 3]
+
+
+def template_id(domain: str, index: int) -> str:
+    return f"{domain}-o{index % TEMPLATES:02d}"
 
 
 def scenario_seed(base_seed: int, index: int) -> int:
@@ -79,13 +86,17 @@ def _assemble(domain: Domain, index: int, seed: int, rng: random.Random, para: P
     length, cue, pos = factors(index)
 
     def say(p: Phrase, item_type: str) -> str:
-        return para.pick(rng, p.text(cue), p.key, item_type, cue)
+        # Only the one-off follows the scenario's cue; every other item uses its fixed variant.
+        c = item_cue(item_type, cue)
+        return para.pick(rng, p.text(c), p.key, item_type, c)
 
-    hard = domain.hard_rules[rng.randrange(len(domain.hard_rules))]
+    one_off = domain.one_offs[index % len(domain.one_offs)]
+    # A hard rule that forbids or gates the probe tool would hide the one-off's effect.
+    hards = [h for h in domain.hard_rules if one_off.probe_tool not in h.blocks]
+    hard = hards[rng.randrange(len(hards))]
     pref = domain.preferences[rng.randrange(len(domain.preferences))]
     reqs = rng.sample(domain.requests, 2)
     change = domain.changes[rng.randrange(len(domain.changes))]
-    one_off = domain.one_offs[index % len(domain.one_offs)]
 
     def item(id_: str, type_: str, p: Phrase, text: str, scope: str | None = None) -> Item:
         return Item(id=id_, type=type_, text=text, key=p.key, turn=-1, scope=scope)
@@ -107,6 +118,13 @@ def _assemble(domain: Domain, index: int, seed: int, rng: random.Random, para: P
     events = [opener] + [middle[n] for n in _order(rng, middle)]
     k = {"early": 1, "middle": 3, "late": rng.choice((5, 6))}[pos]
     events.insert(k, o_event)
+    if one_off.resolved:
+        # The user later says the one-off's reason has ended; always after the one-off.
+        events.insert(rng.randint(k + 1, len(events)), _ev(*one_off.resolved))
+    n_neutral = rng.randint(*NEUTRAL_TURNS)
+    for user, reply in rng.sample(domain.neutral, n_neutral):
+        events.insert(rng.randint(1, len(events)), _ev(user, reply))
+    k = events.index(o_event)
 
     # Spread padding so that the share of text before the one-off hits its position target.
     size = lambda ev: sum(len(m.content) for m in ev.messages)
@@ -137,6 +155,7 @@ def _assemble(domain: Domain, index: int, seed: int, rng: random.Random, para: P
         id=f"{domain.name}-{index:03d}", domain=domain.name, seed=seed, length=length, cue=cue,
         items=items, history=history, next_task=one_off.next_task,
         probe=Probe(tool=one_off.probe_tool, inflated_if=dict(one_off.inflated_if)), position=pos,
+        template=template_id(domain.name, index),
     )
 
 
@@ -185,16 +204,18 @@ HELDOUT_SIZE = 40
 HELDOUT_SEED = 1000  # base seed of the held-out set, apart from the main set's usual small seeds
 
 
+# Occurrence k (0, 1, 2) of each held-out template, found by a seeded random search so that the
+# set is balanced (see heldout_indices); tests check the balance.
+HELDOUT_OCCURRENCE = (0, 2, 1, 1, 1, 2, 2, 1, 2, 0, 1, 2, 2, 1, 0, 2, 1, 0, 0, 1,
+                      0, 1, 0, 1, 2, 1, 0, 1, 0, 1, 2, 1, 0, 0, 2, 0, 2, 2, 2, 0)
+
+
 def heldout_indices() -> list[tuple[str, int]]:
-    """(domain, index) for the 40 held-out scenarios: 8 per domain, each of a domain's one-offs
-    once, cue 20/20 overall and 4/4 per domain, and lengths and positions 13 or 14 each."""
-    out = []
-    for d, name in enumerate(DOMAINS):
-        for k in range(PER_DOMAIN // 6):  # one per one-off
-            g = d * 8 + k
-            block = g % 3 + 3 * (g % 2)  # length from g % 3, cue from g % 2 (see factors)
-            out.append((name, block * 8 + k))
-    return out
+    """(domain, index) for the 40 held-out scenarios: 8 per domain, each from a different one-off
+    template (half of them odd, half even), cue 20/20 overall and 4/4 per domain, and lengths
+    and positions 13 or 14 each."""
+    picks = [(name, (3 * d + 2 * m + (m >= 4)) % TEMPLATES) for d, name in enumerate(DOMAINS) for m in range(8)]
+    return [(name, k * TEMPLATES + j) for (name, j), k in zip(picks, HELDOUT_OCCURRENCE)]
 
 
 def generate_heldout(seed: int = HELDOUT_SEED, paraphraser: Paraphraser | None = None) -> list[Scenario]:

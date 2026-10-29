@@ -9,6 +9,7 @@ from typing import Any, Iterable
 
 from inflatebench.conditions import neutral_context
 from inflatebench.judge.judges import PanelJudge
+from inflatebench.judge.rubric import ALLOWED_LABELS
 from inflatebench.models import Deferred, Pending, run_phases
 from inflatebench.schema import Label, Scenario, Summary, read_jsonl, write_jsonl
 
@@ -63,6 +64,21 @@ def quote_flag_rates(labels: Iterable[Label]) -> dict[str, dict[str, Any]]:
     return dict(sorted(out.items()))
 
 
+def type_flag_rates(labels: Iterable[Label]) -> dict[str, dict[str, Any]]:
+    """Per judge: planted-item labels, how many kept a label their item type does not allow
+    after one re-ask, and the rate."""
+    out: dict[str, dict[str, Any]] = {}
+    for lab in labels:
+        if lab.item_id is None:
+            continue
+        row = out.setdefault(lab.judge, {"labels": 0, "flagged": 0})
+        row["labels"] += 1
+        row["flagged"] += lab.type_flagged
+    for row in out.values():
+        row["rate"] = row["flagged"] / row["labels"] if row["labels"] else 0.0
+    return dict(sorted(out.items()))
+
+
 def make_annotation_sample(scenarios: Iterable[Scenario], summaries: Iterable[Summary],
                            n: int = 200, seed: int = 0,
                            include_history: bool = True) -> tuple[list[dict], list[dict]]:
@@ -81,7 +97,8 @@ def make_annotation_sample(scenarios: Iterable[Scenario], summaries: Iterable[Su
         scen = by_id[summ.scenario_id]
         row: dict[str, Any] = {"uid": uid, "scenario_id": scen.id, "item_id": item.id,
                                "item_type": item.type, "item_text": item.text,
-                               "item_scope": item.scope, "summary": neutral_context(summ.messages)}
+                               "item_scope": item.scope, "summary": neutral_context(summ.messages),
+                               "allowed_labels": list(ALLOWED_LABELS[item.type])}
         if include_history:
             row["history"] = [m.to_dict() for m in scen.history]
         sample.append(row)

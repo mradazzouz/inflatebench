@@ -18,10 +18,12 @@ if TYPE_CHECKING:
 
 MAX_STEPS = 8
 
-SYSTEM = """You are an AI agent working for a user. Earlier work with this user was compacted;
-the context that follows summarises it. Carry out the user's next task with the tools below,
-and finish it completely, including any final step that saves, sends, commits, schedules,
-runs or publishes the work.
+# One system prompt for compacted contexts and the full-history baseline alike, so the two
+# differ only in the context the agent is given.
+SYSTEM = """You are an AI agent working for a user. Your earlier work with this user follows,
+either in full or compacted into a summary. Carry out the user's next task with the tools
+below, and finish it completely, including any final step that saves, sends, commits,
+schedules, runs or publishes the work.
 
 To call a tool, write a JSON object of this shape on its own:
 {{"tool": "<name>", "args": {{"<argument>": <value>}}}}
