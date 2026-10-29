@@ -215,8 +215,9 @@ def test_fake_judge_labels_kept_and_lost_items(pilot_all):
     assert labels["c1"] == "lost" and labels["o1"] == "correct"
 
 
-def pipeline_config(tmp_path) -> str:
+def pipeline_config(tmp_path, **overrides) -> str:
     cfg = yaml.safe_load(open("config.yaml"))
+    cfg.update(overrides)
     cfg["paths"].update(scenarios=str(tmp_path / "missing.jsonl"), runs=str(tmp_path / "runs"),
                         cache=str(tmp_path / "cache"))
     path = tmp_path / "config.yaml"
@@ -288,7 +289,10 @@ def test_cli_judge_warns_when_too_many_quotes_are_flagged(tmp_path, monkeypatch,
 
 
 def test_cli_stages_report_missing_inputs_and_config(tmp_path):
-    cfg = pipeline_config(tmp_path)
+    # Placeholders as in an unfilled config: no judges and no agent model name.
+    models = yaml.safe_load(open("config.yaml"))["models"]
+    models["main"]["name"] = "CHANGE_ME"
+    cfg = pipeline_config(tmp_path, judges=["CHANGE_ME", "CHANGE_ME"], tiebreak="CHANGE_ME", models=models)
     with pytest.raises(SystemExit, match="summaries.jsonl not found"):
         main(["--config", cfg, "probe", "--run-id", "none", "--fake"])
     with pytest.raises(SystemExit, match="labels.jsonl not found"):

@@ -377,9 +377,7 @@ def test_extra_params_from_config_are_sent_and_keyed(tmp_path, monkeypatch):
 def test_config_example_for_glm_builds_a_provider(monkeypatch):
     from inflatebench.models import make_llm
 
-    text = open("config.yaml").read()
-    block = text.split("  # glm:", 1)[1].split("\n\n", 1)[0]
-    entry = yaml.safe_load("\n".join(line.replace("  #", "", 1) for line in block.splitlines()[1:]))
+    entry = yaml.safe_load(open("config.yaml"))["models"]["local"]
     assert entry["name"] == "glm-5.3-flash" and entry["params"] == {"reasoning_effort": "low"}
     monkeypatch.setenv("ZAI_API_KEY", "zai-test")
     llm = make_llm(entry)
@@ -440,6 +438,7 @@ def test_compact_dry_run_estimates_cost(tmp_path, capsys):
     cfg["models"]["main"]["name"] = "m"
     cfg["models"]["strong"]["name"] = "m"
     cfg["models"]["strong"]["subset"] = 4
+    cfg["models"]["strong"]["batch"] = False
     cfg["prices"] = {"m": {"input": 1.0, "output": 5.0}}
     cfg_path = tmp_path / "config.yaml"
     cfg_path.write_text(yaml.safe_dump(cfg))
@@ -461,8 +460,12 @@ def test_compact_dry_run_estimates_cost(tmp_path, capsys):
 def test_compact_dry_run_without_price_or_scenarios(tmp_path, capsys):
     scen = tmp_path / "s.jsonl"
     scen.write_text(json.dumps(scenario(0)) + "\n")
-    assert main(["compact", "--run-id", "r", "--dry-run", "--scenarios", str(scen)]) == 0
-    assert "unknown: add 'CHANGE_ME' under prices" in capsys.readouterr().out
+    cfg = yaml.safe_load(open("config.yaml"))
+    cfg["prices"] = {}
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(yaml.safe_dump(cfg))
+    assert main(["--config", str(cfg_path), "compact", "--run-id", "r", "--dry-run", "--scenarios", str(scen)]) == 0
+    assert f"unknown: add '{cfg['models']['main']['name']}' under prices" in capsys.readouterr().out
     with pytest.raises(SystemExit, match="not found"):
         main(["compact", "--run-id", "r", "--dry-run", "--scenarios", str(tmp_path / "none.jsonl")])
     with pytest.raises(SystemExit, match="no model 'nope'"):

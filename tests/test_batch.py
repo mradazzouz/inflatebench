@@ -53,6 +53,9 @@ def config(tmp_path):
     cfg["paths"].update(scenarios=str(scenarios), runs=str(tmp_path / "runs"), cache=str(tmp_path / "cache"))
     # The phase counts below are for the five main conditions (the ablations add single calls).
     cfg["conditions"] = ["free", "sectioned", "keep_rules", "extractor", "pinning"]
+    # A local Ollama model: an openai_compatible provider with no batch API and no key.
+    cfg["models"]["local"] = {"provider": "openai_compatible", "name": "llama3.1:8b",
+                              "base_url": "http://localhost:11434/v1"}
     path = tmp_path / "config.yaml"
     path.write_text(yaml.safe_dump(cfg))
     return path, tmp_path
