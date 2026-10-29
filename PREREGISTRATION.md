@@ -170,3 +170,13 @@ These are all labelled exploratory and are not corrected for multiplicity:
 - Judges: main (Claude) and local (GLM) score every summary; claude-sonnet-5-5 breaks ties.
 - The exploratory strong-model compaction subset is dropped for budget reasons (estimated cost $30). No confirmatory hypothesis uses it.
 - A small trial run on generated scenarios follows this addendum. It checks the pipeline and real costs, and is excluded from all analyses. If the measured costs exceed the budget, the number of probe repeats may be reduced; any such change will be recorded in a further addendum before the main run, and will be based only on cost, not on any results.
+
+## Addendum 2 (2026-10-29), before the main run
+
+All changes below were decided before any main-run data, based on cost, independence, or defects found in exploratory trial runs (trial, trial2), which are excluded from all analyses.
+
+- Tie-break judge changed from claude-sonnet-5-5 to deepseek-flash (DeepSeek API; served DeepSeek-V4.1-Flash, open weights under an MIT licence, on these dates), for cost (Sonnet tie-breaks were about two-thirds of judging cost) and independence (Sonnet shares a family with the first judge). In the trial, Sonnet and DeepSeek agreed on 45 of 66 jointly tie-broken items (68%); switching changed 30 of 891 final labels (3.4%), mostly from an inflation label to correct, so estimates are expected to be slightly conservative.
+- Added robustness analysis: main inflation results are also reported using only items on which the two main judges agreed (no tie-break).
+- Judge rubric: the stale rule is clarified for old values retained verbatim in pinned or extracted blocks (see LABEL_GUIDE.md).
+- Scenario padding revised to remove internal contradictions; one-off templates whose stated reason could still apply at the next task were revised by logical review only (not by probe outcomes); scenarios regenerated with the same seeds.
+- Probe agent: agent_haiku (claude-haiku-5-5, output_config effort low, max_tokens 16000); one tool call per reply with later text discarded; mock tools accept all actions valid in each scenario's world.

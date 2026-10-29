@@ -1,20 +1,15 @@
 # Model names live here, never in code.
 # API keys are read only from environment variables: ANTHROPIC_API_KEY for anthropic,
 # and the variable named by api_key_env for openai_compatible.
+# Anthropic per-model params (claude-haiku-5-5): output_config: {effort: low|medium|high|max};
+# thinking: {type: disabled} is allowed only at effort high or below; budget_tokens is rejected
+# on this model. Thinking text is returned only with thinking: {type: adaptive, display: summarized}.
 models:
   main:          # cheap hosted model, run through the Batch API
     provider: anthropic
     name: claude-haiku-5-5
     batch: true
-    max_tokens: 8192             # thinking and answer together; above 21333 single calls stream
-    # Optional params: extra request fields sent on every call, part of the cache key only
-    # when set. claude-haiku-5-5 thinks by default (adaptive, effort medium), which counts
-    # against max_tokens. Its fields:
-    #   params:
-    #     output_config: {effort: low}   # low | medium | high | xhigh | max; not top-level
-    #     thinking: {type: disabled}     # only at effort high or below; or {type: adaptive,
-    #                                    # display: summarized} to see thinking in runs/<id>/debug
-    # budget_tokens and non-default temperature/top_p/top_k are rejected (400) on this model.
+    max_tokens: 8192
   local:         # open-weights model (GLM-5.3-Flash, MIT licence), hosted by Z.ai
     provider: openai_compatible
     name: glm-5.3-flash
@@ -23,26 +18,40 @@ models:
     max_tokens: 16384            # room for hidden reasoning plus the summary or JSON verdict
     params:
       reasoning_effort: low
-  strong:        # stronger model on a 60-scenario subset, 12 per domain (exploratory)
+  strong:        # stronger model; its exploratory subset was dropped (Addendum 1); unused
     provider: anthropic
     name: claude-sonnet-5-5
     subset: 60
     batch: true
     max_tokens: 8192
+  deepseek:      # tie-break judge: independent family, open weights (MIT)
+    provider: openai_compatible
+    name: deepseek-flash
+    base_url: https://api.deepseek.com
+    api_key_env: DEEPSEEK_API_KEY
+    max_tokens: 16384
+  agent_haiku:   # same model as main; low effort so tool-use replies stay short (Addendum 2)
+    provider: anthropic
+    name: claude-haiku-5-5
+    max_tokens: 16000
+    params:
+      output_config:
+        effort: low
 
 # Judges: two families score every summary; the third breaks ties.
 judges:
   - main
   - local
-tiebreak: strong
+tiebreak: deepseek
 
-agent: main      # model that acts on each summary in ib probe
+agent: agent_haiku   # model that acts on each summary in ib probe
 
 # USD per million tokens; used for cost logging and ib compact --dry-run.
 prices:
   claude-haiku-5-5: {input: 0.10, output: 0.50, cache_read: 0.01}
   claude-sonnet-5-5: {input: 2.00, output: 10.00, cache_read: 0.10}
   glm-5.3-flash: {input: 0.15, output: 0.50, cache_read: 0.03}
+  deepseek-flash: {input: 0.30, output: 1.20, cache_read: 0.03}
 
 conditions: [free, sectioned, keep_rules, extractor, pinning, free_limited, sectioned_noconstraints]
 repeats: 3
