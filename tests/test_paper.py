@@ -8,7 +8,7 @@ import pytest
 
 from inflatebench.analyze.report import analyze
 from inflatebench.judge import ALLOWED_LABELS, LABEL_DEFINITIONS
-from inflatebench.judge.rubric import PRECEDENCE
+from inflatebench.judge.rubric import PRECEDENCE, STALE_EXAMPLE, STALE_RULE, system_prompt
 from conftest import synthetic_run
 
 ROOT = Path(__file__).parent.parent
@@ -30,6 +30,15 @@ def test_label_guide_matches_rubric():
         assert re.search(rf"^\| {item_type} \| [^|]+ \| {', '.join(allowed)} \|$", text, re.M), item_type
     assert " > ".join(PRECEDENCE) in text
     assert "annotation/index.html" in text
+    # The rule for a changed value whose old value still appears, and its worked example, are
+    # the judges' words (labels in backticks instead of quotes).
+    for rule in (STALE_RULE, STALE_EXAMPLE):
+        assert rule.replace('"stale"', "`stale`").replace('"correct"', "`correct`") in text
+
+
+def test_judge_prompt_states_the_stale_rule_with_its_example():
+    prompt = system_prompt()
+    assert STALE_RULE in prompt and STALE_EXAMPLE in prompt
 
 
 def test_label_guide_examples_use_allowed_labels():

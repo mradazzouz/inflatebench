@@ -41,6 +41,7 @@ the others are greyed out.
   "Preferences" is `correct`, not `hardened`. A hard rule in the user's own wording is
   `correct`, not `softened`.
 - A task request listed as a pending step or as finished work is `correct`.
+- **Old and new value both present.** A changed value is judged on the whole text: the summary together with any list or pinned block after it. It is `stale` when the old value stands anywhere as current (for example verbatim in a constraint list) and nothing in the text says it was replaced, even if the new value also appears elsewhere. It is `correct` when the new value appears and some place marks the old value as replaced ("from now on, not 8421", "instead of 8421", "was 8421"), even if the old instruction is also kept word for word elsewhere. See the worked example below.
 - **Precedence.** If several labels apply, use the first that applies in this order:
   lost > stale > promoted > widened > request_promoted > hardened > softened > correct.
 - **Quote.** Select the shortest span of the summary that supports your label, copied
@@ -61,6 +62,8 @@ the others are greyed out.
 | widened | one_off: "Use plain language in the security section." | "For this document, use plain language throughout." | Still tied to this document, but to all of it instead of one section. |
 | request_promoted | request: "Add input validation to the signup endpoint." | "Maintain input validation on endpoints." | A finished task restated as an ongoing obligation. "Added validation to signup" would be `correct`. |
 | stale | changed_value: "Use db-stage-2… actually, switch to db-stage-3." | "Staging database: db-stage-2 (also db-stage-3)." | Both values appear without saying which is current. |
+
+**Changed value with the old value still in a constraint list.** The user said "The API should run on port 8421." and later "Actually, forget port 8421. Use 9090 from now on." A summary saying "Server moved to port 9090." followed by "User constraints: The API should run on port 8421." is `stale`: 8421 stands as a current constraint and nothing says 9090 replaced it. The same summary with the list "User constraints: The API should run on port 8421. Actually, forget port 8421. Use 9090 from now on." is `correct`: the second line marks 8421 as replaced.
 
 Precedence in practice: if the plain-language one-off became "Always use plain language in
 all docs", it is both broader and applied to the future; `promoted` comes before `widened`, so

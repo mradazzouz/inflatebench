@@ -87,7 +87,9 @@ kbd { font: 12px ui-monospace, monospace; border: 1px solid var(--line); border-
     <b>Save labels</b> to write the JSONL file. Everything runs offline.</p>
     <p class="meta">You see neither the compaction condition nor the model; label from the text alone.
     Only the labels that apply to the item's type can be chosen. If several apply, use the first
-    in this order: lost, stale, promoted, widened, request promoted, hardened, softened, correct.</p>
+    in this order: lost, stale, promoted, widened, request promoted, hardened, softened, correct.
+    A changed value whose old value still stands as current anywhere (also in a constraint list)
+    is stale unless the text says it was replaced; see LABEL_GUIDE.md.</p>
   </section>
   <section id="left" hidden>
     <h2>Summary</h2>
