@@ -78,6 +78,48 @@ prices never appear in code):
   (`base_url: http://localhost:11434/v1`, no key). Set `api_key_env` for hosted endpoints.
 - `fake`: canned replies for tests.
 
+### Batch runs
+
+With `batch: true` on an `anthropic` model, `ib compact` and `ib judge` send their calls
+through the Message Batches API in two phases. `ib compact` first sends every
+condition's first call (the summaries, and pinning's extraction) as one batch, waits for it, then
+sends the calls that come after them (the extractor's constraint list, pinning's summary) as a
+second batch. `ib judge` first sends both judges' calls, then only the tie-break calls for the
+summaries the judges disagree on. A crashed run picks up where it stopped: answered calls come
+from the disk cache, and submitted batches are recorded under `paths.cache` and collected
+rather than resubmitted. `--no-batch` makes single calls instead. Providers without a batch
+API (`openai_compatible`) always make single calls.
+
+### Other hosted providers
+
+`config.yaml` has commented-out entries for OpenAI, Google Gemini (through its
+OpenAI-compatible endpoint) and an open-weights model on a hosted provider (Together AI shown;
+any `/v1/chat/completions` endpoint works). Each uses `provider: openai_compatible` with its own
+`base_url` and key variable:
+
+```yaml
+models:
+  openai:
+    provider: openai_compatible
+    name: CHANGE_ME                 # an OpenAI model id
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+  gemini:
+    provider: openai_compatible
+    name: CHANGE_ME                 # a Gemini model id
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai
+    api_key_env: GEMINI_API_KEY
+  open_hosted:
+    provider: openai_compatible
+    name: CHANGE_ME                 # e.g. org/model-name
+    base_url: https://api.together.xyz/v1
+    api_key_env: TOGETHER_API_KEY
+```
+
+Uncomment the ones you need, fill in the model ids, export the keys
+(`export OPENAI_API_KEY=...`) and use them by key, e.g. `ib compact --model gemini` or as a
+judge under `judges:`. Add their prices under `prices:` for cost logging.
+
 Every call is cached on disk under `paths.cache` by a hash of its request, so reruns cost
 nothing; batches submitted by a crashed run are collected on the next run instead of being
 resubmitted. Transient errors (429, 5xx, overload, dropped connections) are retried with

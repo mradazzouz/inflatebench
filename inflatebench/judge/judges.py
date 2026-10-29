@@ -59,6 +59,12 @@ class LLMJudge:
         text, meta = _meta(summary)
         return verdict_labels(self.verdict(scenario, text), scenario, self.name, meta)
 
+    def prefetch(self, scenario: Scenario, summary: str) -> None:
+        """Queue this judge's first call when its LLM batches calls (models.Deferred)."""
+        want = getattr(self.llm, "want", None)
+        if want is not None:
+            want(build_prompt(scenario, summary), **self.params)
+
 
 class PanelJudge:
     """Two judges score every summary; a third decides the items they disagree on.
@@ -75,8 +81,14 @@ class PanelJudge:
         self.first, self.second, self.tiebreak = first, second, tiebreak
         self.name = FINAL
 
+    @property
+    def judges(self) -> tuple[LLMJudge, LLMJudge, LLMJudge]:
+        return self.first, self.second, self.tiebreak
+
     def label(self, scenario: Scenario, summary: Summary | str) -> list[Label]:
         text, meta = _meta(summary)
+        # With batched judges, both scores go out in the first phase, the tie-break in the next.
+        self.second.prefetch(scenario, text)
         a = self.first.verdict(scenario, text)
         b = self.second.verdict(scenario, text)
         disputed = [i.id for i in scenario.items if a.items[i.id][0] != b.items[i.id][0]]

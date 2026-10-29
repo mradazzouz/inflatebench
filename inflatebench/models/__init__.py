@@ -98,6 +98,7 @@ def provider_settings(llm: Any) -> dict[str, Any]:
     return settings() if callable(settings) else {"model": getattr(llm, "model", None)}
 
 
+from inflatebench.models.batch import Deferred, Pending, run_phases  # noqa: E402
 from inflatebench.models.cache import CachedLLM, DiskCache  # noqa: E402
 from inflatebench.models.factory import from_config, make_llm  # noqa: E402
 from inflatebench.models.fake import FakeLLM  # noqa: E402
@@ -111,9 +112,11 @@ __all__ = [
     "BatchLLM",
     "CachedLLM",
     "Completion",
+    "Deferred",
     "DiskCache",
     "FakeLLM",
     "LLM",
+    "Pending",
     "Prices",
     "Request",
     "UsageLog",
@@ -121,5 +124,6 @@ __all__ = [
     "make_llm",
     "provider_settings",
     "retry",
+    "run_phases",
     "strip_key_only",
 ]

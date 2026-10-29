@@ -65,11 +65,11 @@ class AnthropicLLM:
     def _retry(self, fn: Callable[[], Any]) -> Any:
         return retry(fn, attempts=self.retry_attempts, sleep=self.sleep)
 
-    def params(self, messages: list[Message], kw: dict[str, Any], model: str | None = None) -> dict[str, Any]:
+    def params(self, messages: list[Message], kw: dict[str, Any]) -> dict[str, Any]:
         """Messages API request body. Temperature is left at the provider default unless given."""
         system, turns = to_chat(messages)
         kw = strip_key_only(kw)
-        params: dict[str, Any] = {"model": model or self.model, "max_tokens": kw.pop("max_tokens", self.max_tokens)}
+        params: dict[str, Any] = {"model": self.model, "max_tokens": kw.pop("max_tokens", self.max_tokens)}
         cc: dict[str, str] | None = None
         if self.prompt_cache:
             cc = {"type": "ephemeral"} | ({"ttl": self.cache_ttl} if self.cache_ttl else {})
@@ -106,9 +106,13 @@ class AnthropicLLM:
         return self._completion(self._retry(lambda: self.client.messages.create(**params)))
 
     def submit_batch(self, requests: list[Request]) -> BatchHandle:
-        """Submit one batch; each entry's custom_id is its request hash (64 hex chars)."""
+        """Submit one batch; each entry's custom_id is its request hash (64 hex chars).
+
+        Request.model is only a cache label (e.g. one per repeat); every entry goes to this
+        provider's model.
+        """
         unique = {r.key(): r for r in requests}
-        body = [{"custom_id": k, "params": self.params(r.messages, dict(r.params), r.model)} for k, r in unique.items()]
+        body = [{"custom_id": k, "params": self.params(r.messages, dict(r.params))} for k, r in unique.items()]
         batch = self._retry(lambda: self.client.messages.batches.create(requests=body))
         return BatchHandle(id=batch.id, size=len(body))
 

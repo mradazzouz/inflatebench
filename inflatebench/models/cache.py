@@ -104,13 +104,17 @@ class CachedLLM:
         return Request(model=self.model, messages=list(messages), params=dict(kw), settings=dict(self.settings))
 
     def complete(self, messages: list[Message], **kw: Any) -> Completion:
-        request = self.request(messages, **kw)
+        return self.complete_request(self.request(messages, **kw))
+
+    def complete_request(self, request: Request) -> Completion:
+        """complete() for a prepared request, whatever cache label (request.model) it carries."""
+        request = replace(request, settings=dict(self.settings))
         hit = self.cache.get(request)
         if hit is not None:
             hit = replace(hit, cached=True)
             self.usage.record(hit, request.key())
             return hit
-        completion = self.llm.complete(messages, **kw)
+        completion = self.llm.complete(request.messages, **request.params)
         self.cache.put(request, completion)
         self.usage.record(completion, request.key())
         return completion
@@ -145,7 +149,7 @@ class CachedLLM:
 
         if not getattr(self.llm, "supports_batch", False):
             for k, r in list(missing.items()):
-                out[k] = self.complete(r.messages, **r.params)
+                out[k] = self.complete_request(r)
             return [out[r.key()] for r in requests]
 
         for handle, pending in self.cache.pending():

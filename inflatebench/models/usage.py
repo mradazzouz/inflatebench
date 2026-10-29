@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -28,8 +29,13 @@ class UsageLog:
         self.cache_hits = 0
         self.tokens = dict.fromkeys(TOKEN_FIELDS, 0)
         self.cost = 0.0
+        self._lock = threading.Lock()  # batches of several judges are collected in parallel
 
     def record(self, completion: Completion, key: str = "", **extra: Any) -> None:
+        with self._lock:
+            self._record(completion, key, **extra)
+
+    def _record(self, completion: Completion, key: str, **extra: Any) -> None:
         self.calls += 1
         if completion.cached:
             self.cache_hits += 1
