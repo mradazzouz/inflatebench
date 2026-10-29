@@ -86,7 +86,8 @@ use the same file without `--scenarios`. For a real run, fill in the model names
 Each stage logs its model calls (`calls.jsonl`, `judge_calls.jsonl`, `probe_calls.jsonl`)
 with model, date, token counts and cost, and records the models, provider settings, date and
 spend of the stage run in `run.json`, `judge.json` and `probe.json`. Human labels for the judge check are collected
-with `annotation/index.html`. The items for it (`make_annotation_sample` in `judge/run.py`) are
+with `annotation/index.html`; annotators follow [LABEL_GUIDE.md](LABEL_GUIDE.md), the one-page guide
+with the judge's label definitions, allowed labels and precedence order. The items for it (`make_annotation_sample` in `judge/run.py`) are
 drawn at random within strata of item type and condition, with an equal share per stratum (with
 summaries from several models, the sample is first split equally over the models), so
 each item type, and with it each inflation label, gets the same number of items; the sample key
@@ -272,6 +273,35 @@ separate them: `free_limited` is the free prompt with the same 250-word limit, a
 `sectioned_noconstraints` is the sectioned prompt without the Constraints & Preferences
 section (four headings, same limit). Free against free_limited isolates the limit; sectioned
 against sectioned_noconstraints isolates the section.
+
+## Building the paper
+
+`paper/` holds the LaTeX source in the official [TMLR style](https://github.com/JmlrOrg/tmlr-style-file)
+(`tmlr.sty`, `tmlr.bst`, `fancyhdr.sty` and `math_commands.tex`, Apache 2.0, see
+`paper/TMLR_STYLE_LICENSE`), set up for anonymous submission (`\usepackage{tmlr}`; use
+`[accepted]` for the camera-ready version or `[preprint]` for arXiv). Sections are in
+`paper/sections/`, the preregistration and label guide appendices in `paper/appendix/`, and the
+related papers from SPEC.md in `paper/references.bib`.
+
+Tables, numbers and figures come from a run's report:
+
+```sh
+ib analyze --run-id main                          # runs/main/report/
+python scripts/make_paper_assets.py main          # -> paper/generated/
+cd paper && latexmk -pdf main.tex                 # -> paper/main.pdf
+```
+
+`make_paper_assets.py` reads `runs/<run_id>/report/` (`--run-dir` for another location,
+`--out` for another output directory) and writes `paper/generated/tables/*.tex` (bare
+`tabular`s: inflation rates, control errors and loss, precision and recall, behaviour,
+regressions and the robustness tables, each rate in percent with its 95% interval),
+`paper/generated/macros.tex` (`\ibRunId`, `\ibNScenarios`, `\ibNItems`, flag rates and so on),
+the label tables from `judge/rubric.py`, and copies the figures to
+`paper/generated/figures/`. It empties the tables and figures folders first, so nothing from an
+earlier run stays. Any missing asset shows as a grey placeholder box, so the paper builds
+before a run exists. `paper/generated/` and the build outputs are gitignored. A LaTeX
+distribution with `latexmk` is needed (on Debian or Ubuntu: `texlive-latex-recommended`,
+`texlive-latex-extra`, `texlive-fonts-recommended`, `lmodern`, `latexmk`).
 
 ## Licence
 

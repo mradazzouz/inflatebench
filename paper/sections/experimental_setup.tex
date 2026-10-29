@@ -1,0 +1,22 @@
+\section{Experimental Setup}
+\label{sec:setup}
+
+\subsection{Compaction conditions}
+\todo{Free summary, sectioned template, keep-rules prompt, extractor \citep{compint}, pinning
+\citep{governancedecay}; ablations free\_limited and sectioned\_noconstraints.}
+
+\subsection{Models}
+\todo{Main hosted model via batch API; local $\sim$8B open model; strong model on a balanced
+60-scenario subset. Each condition runs \ibRepeats{} times per scenario.}
+
+\subsection{Judging}
+\todo{Two judges from different model families, tie-break judge; quote verification and
+type-flagging. Final quote flag rate \ibQuoteFlagRate{}, type flag rate \ibTypeFlagRate{}.}
+
+\subsection{Human validation}
+\todo{Two annotators, 200 items stratified by item type and condition, 100 per model; Cohen's
+kappa gate of 0.7 (Appendix~\ref{app:prereg}).}
+
+\subsection{Statistics}
+\todo{95\% bootstrap intervals over one-off templates (\ibNBoot{} resamples); mixed-effects
+logistic regression with random intercepts for template and scenario.}

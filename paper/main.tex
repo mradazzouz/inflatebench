@@ -1,0 +1,66 @@
+\documentclass[10pt]{article} % For LaTeX2e
+% Anonymous submission mode (the default). For the camera-ready version use
+% \usepackage[accepted]{tmlr}; for arXiv use \usepackage[preprint]{tmlr}.
+\usepackage{tmlr}
+
+% Optional math commands from https://github.com/goodfeli/dlbook_notation (ships with the style).
+\input{math_commands.tex}
+
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+
+% Assets written by scripts/make_paper_assets.py into generated/. Every use falls back to a
+% visible placeholder, so the paper builds before any run exists.
+\newcommand{\placeholder}[1]{\fbox{\parbox{0.9\linewidth}{\centering\small\textcolor{gray}{%
+  Missing generated/\detokenize{#1}: run \texttt{python scripts/make\_paper\_assets.py RUN\_ID}.}}}}
+\newcommand{\gentable}[1]{\IfFileExists{generated/tables/#1.tex}%
+  {\input{generated/tables/#1.tex}}{\placeholder{tables/#1.tex}}}
+\newcommand{\genfigure}[2][\linewidth]{\IfFileExists{generated/figures/#2}%
+  {\includegraphics[width=#1]{generated/figures/#2}}{\placeholder{figures/#2}}}
+\IfFileExists{generated/macros.tex}{\input{generated/macros.tex}}{%
+  \newcommand{\ibRunId}{??}\newcommand{\ibJudge}{??}\newcommand{\ibNScenarios}{??}%
+  \newcommand{\ibNItems}{??}\newcommand{\ibNBoot}{??}\newcommand{\ibRepeats}{??}%
+  \newcommand{\ibExcludedFlagged}{??}\newcommand{\ibQuoteFlagRate}{??}\newcommand{\ibTypeFlagRate}{??}}
+
+\newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
+
+\title{Constraint Inflation in Context Compaction}
+
+% Authors stay hidden as long as tmlr is used without [accepted] or [preprint].
+\author{\name Anonymous authors \\
+      \addr Paper under double-blind review}
+
+\def\month{MM}  % Insert correct month for camera-ready version
+\def\year{YYYY} % Insert correct year for camera-ready version
+\def\openreview{\url{https://openreview.net/forum?id=XXXX}} % Insert correct link to OpenReview for camera-ready version
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+\todo{One paragraph: compaction summaries are known to lose user constraints; we measure the
+opposite error, inflation, where one-offs, preferences and task requests become standing or
+stricter rules. Benchmark size, conditions, models, headline rates, behavioural effect, and the
+trade-off of constraint-preserving fixes.}
+\end{abstract}
+
+\input{sections/introduction}
+\input{sections/related_work}
+\input{sections/benchmark}
+\input{sections/experimental_setup}
+\input{sections/results}
+\input{sections/limitations}
+\input{sections/conclusion}
+
+\bibliography{references}
+\bibliographystyle{tmlr}
+
+\appendix
+\input{appendix/preregistration}
+\input{appendix/label_guide}
+
+\end{document}

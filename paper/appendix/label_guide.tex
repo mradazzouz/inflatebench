@@ -1,0 +1,59 @@
+\section{Label Guide}
+\label{app:label-guide}
+
+Judges and human annotators use the same definitions, allowed labels and precedence order
+(\texttt{LABEL\_GUIDE.md} in the repository). The tables below are generated from the judge's
+rubric, so they match the labels used in every result.
+
+\begin{table}[h]
+  \centering\small
+  \gentable{labels}
+  \caption{Label definitions.}
+  \label{tab:labels}
+\end{table}
+
+\begin{table}[h]
+  \centering\small
+  \gentable{allowed_labels}
+  \caption{What a correct summary does with each item type, and the labels each type allows.}
+  \label{tab:allowed-labels}
+\end{table}
+
+\paragraph{Precedence.} When several labels apply, the first that applies in this order is
+used: \IfFileExists{generated/tables/precedence.tex}{\input{generated/tables/precedence.tex}}{\placeholder{tables/precedence.tex}}.
+
+\paragraph{Rules.}
+\begin{itemize}
+  \item Judge only what the summary says, not what the agent did earlier.
+  \item A one-off or task request that is simply absent is \texttt{correct} (it was done).
+  \item A one-off applied to future occasions is \texttt{promoted} even if it is also broader;
+        \texttt{widened} is only for a one-off still tied to its own occasion.
+  \item A preference written as a bare imperative or noun phrase under a heading that says
+        ``Preferences'' is \texttt{correct}, not \texttt{hardened}. A hard rule in the user's own
+        wording is \texttt{correct}, not \texttt{softened}.
+  \item A task request listed as a pending step or as finished work is \texttt{correct}.
+  \item The supporting quote is the shortest verbatim span of the summary; it is empty only
+        when the label rests on absence.
+\end{itemize}
+
+\paragraph{Worked examples.}
+\begin{center}\small
+\begin{tabular}{lp{0.3\linewidth}p{0.42\linewidth}}
+\toprule
+Label & User said (item type) & Summary text \\
+\midrule
+\texttt{correct} & ``For this run, drop rows with no country.'' (one-off) & ``Backfill of 3 May done; rows without a country were dropped for that run.'' \\
+\texttt{lost} & ``Never push directly to main.'' (hard rule) & (no mention) \\
+\texttt{promoted} & ``For this run, drop rows with no country.'' (one-off) & ``Pipeline strategy: drop rows with missing country.'' \\
+\texttt{hardened} & ``I'd rather keep the PRs small.'' (preference) & ``Constraints: PRs must be small; split larger work.'' \\
+\texttt{softened} & ``Never deploy on Fridays.'' (hard rule) & ``Try to avoid deploying on Fridays.'' \\
+\texttt{widened} & ``Use plain language in the security section.'' (one-off) & ``For this document, use plain language throughout.'' \\
+\texttt{request\_promoted} & ``Add input validation to the signup endpoint.'' (request) & ``Maintain input validation on endpoints.'' \\
+\texttt{stale} & ``Use db-stage-2\ldots{} actually, switch to db-stage-3.'' (changed value) & ``Staging database: db-stage-2 (also db-stage-3).'' \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Annotation interface.} Annotators label in an offline HTML page that shows the
+summary, the original conversation on request and one planted item at a time, enables only the
+labels the item's type allows and hides the compaction condition and model.
