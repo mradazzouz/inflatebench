@@ -16,10 +16,14 @@ models:
     name: CHANGE_ME
     subset: 60
 
-judges:          # two families score every summary; the third breaks ties
+# Judges for ib judge: two families score every summary; the third breaks ties. Each is a
+# key under models: above, or an inline entry like {provider: anthropic, name: some-model-id}.
+judges:
   - CHANGE_ME
   - CHANGE_ME
 tiebreak: CHANGE_ME
+
+agent: main      # model key that acts on each summary in ib probe (override with --model)
 
 # USD per million tokens, keyed by model name; used for per-call cost logging and by
 # `ib compact --dry-run`. cache_write and cache_read default to 1.25x and 0.1x input,

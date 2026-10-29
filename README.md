@@ -1,6 +1,69 @@
 # inflatebench
 
-Benchmark for constraint inflation in context compaction. See SPEC.md.
+Benchmark for constraint inflation in context compaction: does a compaction summary turn
+one-off instructions, soft preferences and task requests into standing or stricter rules,
+and does that change what an agent does next? See [SPEC.md](SPEC.md) for the design.
+
+## Installation
+
+Python 3.11 or later.
+
+```sh
+git clone https://github.com/mradazzouz/inflatebench
+cd inflatebench
+pip install -e '.[dev]'         # package, ib command, pytest and the Anthropic SDK
+pytest                          # no API keys needed; tests use a fake model
+```
+
+`pip install -e .` alone installs the pipeline without the Anthropic SDK (enough for Ollama
+and `--fake` runs); add `.[anthropic]` for the hosted provider.
+
+## Quick start
+
+Every stage reads and writes JSONL, so any stage can be rerun on its own. With `--fake`
+the whole pipeline runs offline on the 25 pilot scenarios in a few seconds:
+
+```sh
+ib generate --n 240 --seed 0                     # 1. data/scenarios.jsonl
+ib compact --run-id pilot --scenarios data/pilot.jsonl --fake   # 2. runs/pilot/summaries.jsonl
+ib judge   --run-id pilot --fake                 # 3. runs/pilot/labels.jsonl
+ib probe   --run-id pilot --fake                 # 4. runs/pilot/probes.jsonl
+ib analyze --run-id pilot                        # 5. runs/pilot/report/
+```
+
+`ib compact` records the scenarios file in `runs/<run_id>/run.json`, so the later stages
+use the same file without `--scenarios`. For a real run, fill in the model names in
+`config.yaml` and drop `--fake`:
+
+1. **generate** builds scenarios from the phrase banks (details below).
+2. **compact** runs each compaction condition (`free`, `sectioned`, `keep_rules`, `extractor`,
+   `pinning`) `repeats` times per scenario. Options: `--model KEY`, `--condition NAME`
+   (repeatable), `--limit N`, `--repeats N`, `--dry-run` for a cost estimate.
+3. **judge** labels every planted item in every summary with the two judges and the
+   tie-break judge set under `judges:` and `tiebreak:` in `config.yaml`; the resolved labels
+   are stored under judge `final`.
+4. **probe** gives the agent model (`agent:` in `config.yaml`, or `--model KEY`) the compacted
+   context, the scenario's next task and mock tools for its domain, then checks the
+   tool-call arguments against the scenario's `probe.inflated_if`. The check is
+   deterministic; no judge is involved. Options: `--max-steps N` agent replies per probe.
+5. **analyze** writes inflation rates by type, constraint precision and recall,
+   behavioural inflation rates (all with 95% bootstrap intervals over scenarios),
+   mixed-effects regressions, `summary.json` and figures. Options: `--judge NAME`,
+   `--n-boot N`, `--no-figures`.
+
+Each stage logs its model calls (`calls.jsonl`, `judge_calls.jsonl`, `probe_calls.jsonl`)
+with model, date, token counts and cost. Human labels for the judge check are collected
+with `annotation/index.html`.
+
+### The behaviour probe
+
+The agent sees the tools for its scenario's domain (from `inflatebench/generate/tools.py`)
+and calls them by writing JSON objects such as
+`{"tool": "restart_worker", "args": {"name": "w1", "force": true}}`, so the same protocol
+works with every provider. Mock tools reject unknown tools and arguments with an error the
+agent can read. A probe counts as inflated when any call to the probe tool matches every
+path in `inflated_if`; `probes.jsonl` also records every tool call and whether the probe
+tool was called at all.
 
 ## Models
 
@@ -39,3 +102,23 @@ ib generate --paraphrase-model KEY    # paraphrase items with a model from confi
 
 Without `--paraphrase-model`, items use the curated phrase-bank text verbatim.
 The same `--seed` always gives the same scenarios.
+
+## Licence
+
+Code is released under the [MIT licence](LICENSE). The data in `data/` is released under
+[CC BY 4.0](data/LICENSE.md).
+
+## Citation
+
+If you use inflatebench or its data, please cite it (also in [CITATION.cff](CITATION.cff)):
+
+```bibtex
+@software{mrad2026inflatebench,
+  author  = {Mrad, Mohamed Azouz},
+  title   = {inflatebench: a benchmark for constraint inflation in context compaction},
+  year    = {2026},
+  version = {0.0.1},
+  url     = {https://github.com/mradazzouz/inflatebench},
+  license = {MIT}
+}
+```

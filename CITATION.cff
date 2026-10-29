@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use this benchmark or its data, please cite it as below."
+title: "inflatebench: a benchmark for constraint inflation in context compaction"
+type: software
+authors:
+  - given-names: "Mohamed Azouz"
+    family-names: "Mrad"
+version: 0.0.1
+date-released: 2026-10-29
+license: MIT
+repository-code: "https://github.com/mradazzouz/inflatebench"
+keywords:
+  - context compaction
+  - constraint inflation
+  - LLM agents
+  - benchmark

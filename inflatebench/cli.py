@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import date
 from pathlib import Path
@@ -48,11 +49,6 @@ def _generate(args: argparse.Namespace) -> int:
     return 0
 
 
-def _stub(args: argparse.Namespace) -> int:
-    print(f"ib {args.command}: not implemented yet", file=sys.stderr)
-    return 1
-
-
 class _Logged:
     """Passes calls through to an LLM and keeps every Completion for calls.jsonl."""
 
@@ -74,20 +70,45 @@ def _fake_responder(messages: list[Message]) -> str:
     return "Fake summary."
 
 
-def _make_llm(cfg: dict[str, Any], model_key: str, fake: bool) -> tuple[LLM, str]:
+def _fake_judge_responder(messages: list[Message]) -> str:
+    """Labels from the prompt alone: active items are kept if the summary quotes them, else lost."""
+    from inflatebench.analyze.metrics import ACTIVE
+
+    user = messages[-1].content
+    summary = user.split("<summary>\n", 1)[1].rsplit("\n</summary>", 1)[0]
+    items = []
+    for line in user.split("\n\n", 1)[0].splitlines()[1:]:
+        row = json.loads(line)
+        kept = row["user_said"] in summary
+        label = "lost" if row["type"] in ACTIVE and not kept else "correct"
+        items.append({"item_id": row["item_id"], "label": label,
+                      "quote": row["user_said"] if kept else ""})
+    return json.dumps({"items": items, "invented": []})
+
+
+def _fake_agent_responder(messages: list[Message]) -> str:
+    """Calls every listed tool once with default arguments, then reports done."""
+    if messages[-1].role == "tool":
+        return "Done."
+    tools = re.findall(r"^- (\w+)\(", messages[0].content, re.MULTILINE)
+    return "\n".join(json.dumps({"tool": t, "args": {}}) for t in tools)
+
+
+def _make_llm(cfg: dict[str, Any], model_key: str, fake: bool, stage: str = "compact") -> tuple[LLM, str]:
     """The provider for a model key in config.yaml, and the model name to record."""
     from inflatebench import models
+    from inflatebench.models.factory import check_entry
 
     if fake:
         return models.FakeLLM(_fake_responder), "fake"
+    if model_key not in cfg["models"]:
+        raise SystemExit(f"ib {stage}: no model {model_key!r} in config; have {sorted(cfg['models'])}")
     spec = cfg["models"][model_key]
-    factory = getattr(models, "make_llm", None)
-    if factory is None:
-        raise SystemExit(f"provider {spec['provider']!r} is not available yet; use --fake")
     try:
-        return factory(spec, cfg.get("prices")), spec["name"]
+        check_entry(spec, model_key)
+        return models.make_llm(spec, cfg.get("prices")), spec["name"]
     except (ValueError, RuntimeError) as e:  # placeholder name, missing API key or SDK
-        raise SystemExit(f"ib compact: {e}") from None
+        raise SystemExit(f"ib {stage}: {e}") from None
 
 
 def _compact(args: argparse.Namespace) -> int:
@@ -154,9 +175,127 @@ def _compact(args: argparse.Namespace) -> int:
 
     run_dir = Path(cfg["paths"]["runs"]) / args.run_id
     write_jsonl(run_dir / "summaries.jsonl", summaries)
+    # Later stages read the same scenarios without being told the path again.
+    run_info = {"scenarios": str(path), "model": model, "conditions": [c.name for c in conditions],
+                "repeats": repeats, "n_scenarios": len(scenarios)}
+    (run_dir / "run.json").write_text(json.dumps(run_info, indent=2) + "\n", encoding="utf-8")
     with (run_dir / "calls.jsonl").open("w", encoding="utf-8") as f:
         f.writelines(json.dumps(c) + "\n" for c in calls)
     print(f"wrote {len(summaries)} summaries to {run_dir / 'summaries.jsonl'}")
+    return 0
+
+
+def _run_dir(cfg: dict[str, Any], args: argparse.Namespace, needs: str) -> Path:
+    run_dir = Path(cfg["paths"]["runs"]) / args.run_id
+    if not (run_dir / needs).exists():
+        raise SystemExit(f"ib {args.command}: {run_dir / needs} not found; run the earlier stages first")
+    return run_dir
+
+
+def _scenarios_for(cfg: dict[str, Any], args: argparse.Namespace, run_dir: Path) -> Path:
+    """--scenarios, else the path ib compact recorded in run.json, else the config default."""
+    if args.scenarios:
+        path = Path(args.scenarios)
+    elif (run_dir / "run.json").exists():
+        path = Path(json.loads((run_dir / "run.json").read_text(encoding="utf-8"))["scenarios"])
+    else:
+        path = Path(cfg["paths"]["scenarios"])
+    if not path.exists():
+        raise SystemExit(f"ib {args.command}: {path} not found; pass --scenarios")
+    return path
+
+
+def _usage(path: Path):
+    from inflatebench.models import UsageLog
+
+    path.unlink(missing_ok=True)  # one log per stage run, like calls.jsonl from ib compact
+    return UsageLog(path)
+
+
+def _judge_llm(cfg: dict[str, Any], ref: Any, usage: Any) -> tuple[LLM, str]:
+    """A judge from config: a key under models:, or an inline {provider, name, ...} entry."""
+    from inflatebench.models import CachedLLM, DiskCache, Prices
+    from inflatebench.models.factory import PLACEHOLDER, build_provider, check_entry, model_entry
+
+    if ref in (None, PLACEHOLDER):
+        raise SystemExit("ib judge: set judges and tiebreak in config.yaml (or use --fake)")
+    try:
+        entry = check_entry(ref) if isinstance(ref, dict) else model_entry(cfg, ref)
+        llm = build_provider(entry, Prices(cfg.get("prices")))
+    except (KeyError, ValueError, RuntimeError) as e:
+        raise SystemExit(f"ib judge: {e}") from None
+    cached = CachedLLM(llm, DiskCache(cfg["paths"]["cache"]),
+                       model=f"{entry['provider']}:{entry['name']}", usage=usage)
+    return cached, entry["name"]
+
+
+def _judge(args: argparse.Namespace) -> int:
+    from inflatebench.judge import LLMJudge, PanelJudge, judge_run
+    from inflatebench.models import CachedLLM, DiskCache, FakeLLM
+
+    cfg = load_config(args.config)
+    run_dir = _run_dir(cfg, args, "summaries.jsonl")
+    scenarios = _scenarios_for(cfg, args, run_dir)
+    usage = _usage(run_dir / "judge_calls.jsonl")
+    if args.fake:
+        cache = DiskCache(cfg["paths"]["cache"])
+        judges = [LLMJudge(f"fake-{k}", CachedLLM(FakeLLM(_fake_judge_responder), cache,
+                                                  model=f"fake-judge-{k}", usage=usage))
+                  for k in "abc"]
+    else:
+        refs = list(cfg.get("judges") or []) + [cfg.get("tiebreak")]
+        if len(refs) != 3:
+            raise SystemExit("ib judge: config.yaml needs exactly two judges and a tiebreak")
+        judges = []
+        for ref in refs:
+            llm, name = _judge_llm(cfg, ref, usage)
+            judges.append(LLMJudge(name, llm))
+    try:
+        panel = PanelJudge(*judges)
+    except ValueError as e:
+        raise SystemExit(f"ib judge: {e}") from None
+    out = judge_run(panel, scenarios, run_dir)
+    print(f"wrote labels to {out} ({usage.calls} judge calls, {usage.cache_hits} from cache, "
+          f"${usage.cost:.4f})")
+    return 0
+
+
+def _probe(args: argparse.Namespace) -> int:
+    from inflatebench.models import CachedLLM, DiskCache
+    from inflatebench.probe import probe_run
+
+    cfg = load_config(args.config)
+    run_dir = _run_dir(cfg, args, "summaries.jsonl")
+    scenarios = _scenarios_for(cfg, args, run_dir)
+    key = args.model or cfg.get("agent", "main")
+    if args.fake:
+        from inflatebench.models import FakeLLM
+
+        llm, name = FakeLLM(_fake_agent_responder, model="fake-agent"), "fake-agent"
+    else:
+        llm, name = _make_llm(cfg, key, fake=False, stage="probe")
+    usage = _usage(run_dir / "probe_calls.jsonl")
+    agent = CachedLLM(llm, DiskCache(cfg["paths"]["cache"]), model=f"{name}#agent", usage=usage)
+    out = probe_run(agent, scenarios, run_dir, agent_name=name, max_steps=args.max_steps)
+    print(f"wrote probes to {out} ({usage.calls} agent calls, {usage.cache_hits} from cache, "
+          f"${usage.cost:.4f})")
+    return 0
+
+
+def _analyze(args: argparse.Namespace) -> int:
+    from inflatebench.analyze import analyze_run
+
+    cfg = load_config(args.config)
+    run_dir = _run_dir(cfg, args, "labels.jsonl")
+    scenarios = _scenarios_for(cfg, args, run_dir)
+    try:
+        summary = analyze_run(run_dir, scenarios, judge=args.judge, n_boot=args.n_boot,
+                              seed=args.seed, figures=not args.no_figures)
+    except ValueError as e:
+        raise SystemExit(f"ib analyze: {e}") from None
+    probes = "with" if "behaviour" in summary else "without"
+    print(f"wrote report for {summary['n_items']} items over {summary['n_scenarios']} scenarios "
+          f"({probes} probes) to {run_dir / 'report'}")
     return 0
 
 
@@ -185,19 +324,30 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dry-run", action="store_true", help="estimate tokens and cost without calling models")
     p.add_argument("--output-tokens", type=int, default=1000, help="assumed output tokens per call (dry run)")
 
+    scen_help = "scenarios path (default: the one ib compact used for this run)"
     p = sub.add_parser("judge", help="write runs/<run_id>/labels.jsonl")
     p.add_argument("--run-id", required=True)
+    p.add_argument("--scenarios", default=None, help=scen_help)
+    p.add_argument("--fake", action="store_true", help="use fake judges instead of providers")
 
     p = sub.add_parser("probe", help="write runs/<run_id>/probes.jsonl")
     p.add_argument("--run-id", required=True)
+    p.add_argument("--scenarios", default=None, help=scen_help)
+    p.add_argument("--model", default=None, help="agent model key from config (default: config agent)")
+    p.add_argument("--max-steps", type=int, default=8, help="agent replies per probe")
+    p.add_argument("--fake", action="store_true", help="use a fake agent instead of a provider")
 
     p = sub.add_parser("analyze", help="write runs/<run_id>/report/")
     p.add_argument("--run-id", required=True)
+    p.add_argument("--scenarios", default=None, help=scen_help)
+    p.add_argument("--judge", default="final", help="whose labels to analyse (default: the panel's final)")
+    p.add_argument("--n-boot", type=int, default=2000, help="bootstrap resamples")
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--no-figures", action="store_true", help="tables only")
 
-    sub.choices["generate"].set_defaults(func=_generate)
-    for name in ("compact", "judge", "probe", "analyze"):
-        sub.choices[name].set_defaults(func=_stub)
-    sub.choices["compact"].set_defaults(func=_compact)
+    for name, func in [("generate", _generate), ("compact", _compact), ("judge", _judge),
+                       ("probe", _probe), ("analyze", _analyze)]:
+        sub.choices[name].set_defaults(func=func)
     return parser
 
 

@@ -158,6 +158,8 @@ class ProbeResult(Record):
     repeat: int
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     inflated: bool = False
+    agent: str = ""  # model that acted on the summary (model is the one that compacted)
+    probe_called: bool = False  # whether the agent called the probe tool at all
 
 
 def write_jsonl(path: str | Path, records: Iterable[Record]) -> None:

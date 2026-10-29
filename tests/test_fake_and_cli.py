@@ -1,4 +1,5 @@
 import pytest
+import yaml
 
 from inflatebench.cli import build_parser, load_config, main
 from inflatebench.models import FakeLLM, Request
@@ -23,9 +24,13 @@ def test_fake_llm_callable_and_batch():
 
 
 @pytest.mark.parametrize("command", ["judge", "probe", "analyze"])
-def test_cli_subcommands_are_stubs(command, capsys):
-    assert main([command, "--run-id", "r1"]) == 1
-    assert "not implemented" in capsys.readouterr().err
+def test_cli_stage_needs_an_existing_run(command, tmp_path):
+    cfg = load_config("config.yaml")
+    cfg["paths"]["runs"] = str(tmp_path)
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump(cfg))
+    with pytest.raises(SystemExit, match="run the earlier stages first"):
+        main(["--config", str(path), command, "--run-id", "r1"])
 
 
 def test_cli_requires_a_subcommand():

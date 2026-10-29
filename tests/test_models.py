@@ -1,3 +1,4 @@
+import importlib.util
 import json
 from types import SimpleNamespace as NS
 
@@ -30,6 +31,11 @@ HISTORY = [
     Message("user", "Summarise the session."),
 ]
 PRICES = Prices({"m": {"input": 1.0, "output": 5.0}})
+# Most Anthropic tests use a fake client; only building a real one needs the optional SDK.
+needs_anthropic_sdk = pytest.mark.skipif(
+    importlib.util.find_spec("anthropic") is None,
+    reason="optional anthropic package not installed (pip install -e '.[dev]')",
+)
 
 
 class StatusError(Exception):
@@ -432,13 +438,19 @@ def test_make_llm_builds_each_provider(monkeypatch):
     local = make_llm({"provider": "openai_compatible", "name": "llama3.1:8b", "base_url": "http://localhost:11434/v1"},
                      {"llama3.1:8b": {"input": 0, "output": 0}})
     assert isinstance(local, OpenAICompatibleLLM) and local.url == "http://localhost:11434/v1/chat/completions"
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
-    claude = make_llm({"provider": "anthropic", "name": "m", "max_tokens": 256}, {"m": {"input": 1, "output": 5}})
-    assert isinstance(claude, AnthropicLLM) and claude.max_tokens == 256 and "m" in claude.prices
     with pytest.raises(ValueError, match="set its name"):
         make_llm({"provider": "anthropic", "name": "CHANGE_ME"})
     with pytest.raises(ValueError, match="provider"):
         make_llm({"provider": "nope", "name": "x"})
+
+
+@needs_anthropic_sdk
+def test_make_llm_builds_anthropic_provider(monkeypatch):
+    from inflatebench.models import make_llm
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    claude = make_llm({"provider": "anthropic", "name": "m", "max_tokens": 256}, {"m": {"input": 1, "output": 5}})
+    assert isinstance(claude, AnthropicLLM) and claude.max_tokens == 256 and "m" in claude.prices
 
 
 def compact_config(tmp_path, main_model):
