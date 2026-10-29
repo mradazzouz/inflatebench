@@ -40,7 +40,7 @@ Version 1 has 240 scenarios: 5 domains x 48, each a conversation history with si
 | Hard standing rule (control) | 1 | Kept as strict |
 | Changed value (control) | 1 | Only the new value is current |
 
-Besides the planted items (and the old value a changed value replaces), every history has 3 to 6 **neutral user turns**: questions, thanks and clarifications that set no rule and ask for no task, each answered by the assistant. A one-off whose reason is a state that could last (CI is down, a reviewer is away) is followed later by a user turn saying that state has ended, so applying it at the next task is unambiguously inflation.
+Besides the planted items (and the old value a changed value replaces), every history has 3 to 6 **neutral user turns**: questions, thanks and clarifications that set no rule and ask for no task, each answered by the assistant with a fact the rest of the history agrees with. Padding (tool output between exchanges) shows one fixed world per domain and is internally consistent and neutral: no broken or contradictory code, no version or value mismatches, no reported problems, no assistant mistakes, self-corrections or unchecked judgements, and nothing that reads as an instruction. A one-off whose reason is a state that could last (CI is down, a reviewer is away) is followed later by a user turn saying that state has ended, so applying it at the next task is unambiguously inflation.
 
 **Factors**
 
@@ -108,11 +108,11 @@ Each planted item in each summary gets one label from an LLM judge, validated ag
 | request_promoted | A task request is stated as an ongoing obligation, not as a pending step or finished work |
 | stale | The old value appears as current, or both values appear without saying which is current |
 
-Each item type allows only some labels: one-off (correct, promoted, widened), preference (correct, hardened, lost), request (correct, request_promoted), hard rule (correct, softened, lost), changed value (correct, stale, lost). When several apply, the judge uses the first in this order: lost, stale, promoted, widened, request_promoted, hardened, softened, correct. A judge whose label its item's type does not allow is asked once to fix it; a label still not allowed is kept and flagged, and a robustness check leaves flagged labels out.
+Each item type allows only some labels: one-off (correct, promoted, widened), preference (correct, hardened, lost), request (correct, request_promoted), hard rule (correct, softened, lost), changed value (correct, stale, lost). When several apply, the judge uses the first in this order: lost, stale, promoted, widened, request_promoted, hardened, softened, correct. A judge whose label its item's type does not allow is asked once to fix it; a label still not allowed is kept and flagged, and a robustness check leaves flagged labels out. A changed value is judged on the whole text (the summary with any list or pinned block after it): it is stale when the old value stands anywhere as current and nothing says it was replaced, even if the new value also appears; it is correct when some place marks the old value as replaced, even if the old instruction is also kept verbatim elsewhere.
 
 The judge also lists any **invented** rules that match no planted item; a rule that derives from a planted item is labelled on that item, never as invented.
 
-**Judge.** Two judges from different model families score every summary and return JSON (label plus the quoted summary text that supports it). Disagreements go to a third judge.
+**Judge.** Two judges from different model families score every summary and return JSON (label plus the quoted summary text that supports it). Disagreements go to a third judge. A robustness check recomputes the inflation rates and precision/recall on the items the two main judges agreed on, leaving out every tie-broken item.
 
 **Human check.** Before the main run, write the label definitions as a one-page guide. Two people label 200 items blind to condition, drawn equally from the main and local models' summaries (100 each) and sampled at random within strata of item type and condition (an equal share per stratum, so every inflation label can appear); report Cohen's kappa between them and between humans and the judge, overall and per label (one label against the rest), both unweighted on the sample and weighted by the sample weights as an estimate for all items. Proceed only if the unweighted judge-human kappa on the sample is at least 0.7.
 
