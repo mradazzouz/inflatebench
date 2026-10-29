@@ -93,7 +93,9 @@ class Phrase:
     ack: str = "Understood."
     tool: str | None = None  # tool output after the acknowledgement
     scope: str | None = None
-    blocks: tuple[str, ...] = ()  # hard rules: probe tools the rule forbids or gates
+    # Hard rules: probe tools ("deploy") or probe arguments ("run_job.full_refresh") the rule
+    # forbids or gates.
+    blocks: tuple[str, ...] = ()
 
     def text(self, cue: str) -> str:
         return self.explicit if cue == "explicit" else self.implicit
@@ -132,6 +134,12 @@ class OneOff(Phrase):
 
     def texts(self) -> list[str]:
         return super().texts() + [self.next_task] + list(self.resolved or ())
+
+
+def blocks_probe(rule: Phrase, one_off: OneOff) -> bool:
+    """Does the hard rule forbid or gate the one-off's probe tool, or an argument the probe checks?"""
+    args = {f"{one_off.probe_tool}.{path.split('.')[1]}" for path in one_off.inflated_if}
+    return one_off.probe_tool in rule.blocks or bool(args & set(rule.blocks))
 
 
 Padder = Callable[[random.Random, int], tuple[str, str]]

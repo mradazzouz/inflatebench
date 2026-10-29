@@ -42,7 +42,9 @@ def precision_recall(items: pd.DataFrame, invented: pd.DataFrame, n_boot: int = 
 
 def behaviour_rates(probes: pd.DataFrame, n_boot: int = 2000, seed: int = 0) -> pd.DataFrame:
     """Behavioural inflation over all probes (rate, lo, hi), how often the probe tool was called
-    (called_rate) and behavioural inflation among probes that called it (rate_when_called).
+    (called_rate), how often the agent refused the task instead (refusal_rate; refusals count as
+    not inflated in `rate`) and behavioural inflation among probes that called it
+    (rate_when_called).
 
     With the full-history baseline in the probes (condition "full"), each compacted condition
     also gets `induced` (its rate minus the full-history rate for the same model, with a paired
@@ -52,9 +54,9 @@ def behaviour_rates(probes: pd.DataFrame, n_boot: int = 2000, seed: int = 0) -> 
     from inflatebench.probe.run import FULL
 
     out = ratio_ci(m.behaviour_counts(probes), m.GROUP, n_boot, seed)
-    for counts, name in ((m.called_counts, "called"), (m.behaviour_when_called_counts, "when_called")):
+    for counts, prefix in ((m.called_counts, "called_rate"), (m.refusal_counts, "refusal_rate"),
+                           (m.behaviour_when_called_counts, "rate_when_called")):
         t = ratio_ci(counts(probes), m.GROUP, n_boot, seed)
-        prefix = "called_rate" if name == "called" else "rate_when_called"
         t = t.rename(columns={"rate": prefix, "lo": f"{prefix}_lo", "hi": f"{prefix}_hi",
                               "num": f"{prefix}_num", "den": f"{prefix}_den"})
         out = out.merge(t.drop(columns=["scenarios", "clusters"]), on=m.GROUP, how="left")

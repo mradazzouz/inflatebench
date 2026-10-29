@@ -346,3 +346,67 @@ def test_rubric_lists_allowed_labels_precedence_and_hides_turns(pilot):
     assert o1.scope.endswith(f"(turn {o1.turn})")  # the scenario keeps it; the judge does not see it
     shown = build_prompt(gen, "SUMMARY")[1].content
     assert o1.scope.rsplit(" (turn", 1)[0] in shown and f"(turn {o1.turn})" not in shown
+
+
+def _pool(pilot, summaries, conditions, per_condition):
+    """Summaries of many scenarios (clones of the pilot fixtures) under several conditions."""
+    from dataclasses import replace
+
+    scenarios = [replace(pilot[k % len(pilot)], id=f"syn-{k:03d}") for k in range(60)]
+    base = summaries[0]
+    summs = [replace(base, scenario_id=scenarios[k % 60].id, condition=c, repeat=k // 60)
+             for c in conditions for k in range(per_condition[c])]
+    return scenarios, summs
+
+
+def test_annotation_sample_is_stratified_by_item_type_and_condition(pilot, summaries):
+    from collections import Counter
+
+    conds = ["free", "sectioned", "keep_rules", "extractor", "pinning"]
+    scenarios, summs = _pool(pilot, summaries, conds, dict.fromkeys(conds, 60))
+    sample, key = make_annotation_sample(scenarios, summs, n=200, seed=0)
+    assert len(sample) == 200
+    assert len({(k["scenario_id"], k["condition"], k["repeat"], k["item_id"]) for k in key}) == 200
+    # Requests are a third of the pool (two per scenario), yet every item type gets 40 items.
+    assert Counter(r["item_type"] for r in sample) == dict.fromkeys(
+        ["one_off", "preference", "request", "hard_rule", "changed_value"], 40)
+    cells = Counter((r["item_type"], k["condition"]) for r, k in zip(sample, key))
+    assert len(cells) == 25 and max(cells.values()) - min(cells.values()) <= 1
+    assert Counter(k["condition"] for k in key) == dict.fromkeys(conds, 40)
+    # Weights reweight to the pool: pairs in the stratum over pairs drawn from it.
+    for k in key:
+        item_type = k["stratum"].split("/")[0]
+        assert k["stratum"] == f"{item_type}/{k['condition']}"
+        assert k["weight"] == pytest.approx((120 if item_type == "request" else 60) / cells[(item_type, k["condition"])])
+    # Shuffled, so the order gives away neither the stratum nor the condition.
+    assert [k["stratum"] for k in key] != sorted(k["stratum"] for k in key)
+    assert make_annotation_sample(scenarios, summs, n=200, seed=0) == (sample, key)
+    assert make_annotation_sample(scenarios, summs, n=200, seed=1)[1] != key
+
+
+def test_small_strata_pass_their_share_on(pilot, summaries):
+    from collections import Counter
+
+    # One condition has only 2 summaries (12 pairs): it gives what it has, the other takes the rest.
+    scenarios, summs = _pool(pilot, summaries, ["free", "pinning"], {"free": 60, "pinning": 2})
+    sample, key = make_annotation_sample(scenarios, summs, n=100, seed=3)
+    assert len(sample) == 100
+    by_cond = Counter(k["condition"] for k in key)
+    assert by_cond["pinning"] == 12 and by_cond["free"] == 88
+    # The 88 left are split evenly over the five item types of the other condition.
+    free = Counter(r["item_type"] for r, k in zip(sample, key) if k["condition"] == "free")
+    assert set(free.values()) <= {17, 18}
+    # Asking for more than the pool holds returns the whole pool once.
+    everything, _ = make_annotation_sample(scenarios, summs, n=10_000, seed=0)
+    assert len(everything) == 62 * 6
+
+
+def test_allocate_splits_evenly_within_capacity():
+    import random
+
+    from inflatebench.judge.run import allocate
+
+    take = allocate({"a": 100, "b": 100, "c": 3}, 50, random.Random(0))
+    assert take["c"] == 3 and {take["a"], take["b"]} <= {23, 24} and sum(take.values()) == 50
+    assert allocate({"a": 2, "b": 1}, 10, random.Random(0)) == {"a": 2, "b": 1}
+    assert allocate({"a": 5, "b": 5}, 0, random.Random(0)) == {"a": 0, "b": 0}

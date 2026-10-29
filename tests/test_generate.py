@@ -21,6 +21,7 @@ from inflatebench.generate.banks import (
     FIXED_CUE,
     SCOPE_WORDS,
     OneOff,
+    blocks_probe,
     count_key,
     cue_ok,
     item_cue,
@@ -289,7 +290,16 @@ def test_no_hard_rule_blocks_the_probe_tool(full):
     for s in full:
         h1 = next(i for i in s.items if i.type == "hard_rule")
         rule = next(p for p in DOMAINS[s.domain].hard_rules if p.key == h1.key)
-        assert s.probe.tool not in rule.blocks, s.id
+        one_off = DOMAINS[s.domain].one_offs[int(s.template.split("-o")[1])]
+        assert not blocks_probe(rule, one_off), s.id
+
+
+def test_a_hard_rule_can_block_one_probe_argument():
+    dom = DOMAINS["pipeline"]
+    rule = next(p for p in dom.hard_rules if p.key == "DROP TABLE")
+    refresh = next(o for o in dom.one_offs if o.key == "--full-refresh")
+    sample = next(o for o in dom.one_offs if o.key == "sample 10%")  # also run_job
+    assert blocks_probe(rule, refresh) and not blocks_probe(rule, sample)
 
 
 def test_long_histories_are_mostly_tool_output(full):

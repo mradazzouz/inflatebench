@@ -5,7 +5,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, replace
 
-from inflatebench.generate.banks import Domain, Phrase, count_key, cue_ok, item_cue
+from inflatebench.generate.banks import Domain, Phrase, blocks_probe, count_key, cue_ok, item_cue
 from inflatebench.generate.domains import DOMAINS
 from inflatebench.generate.paraphrase import Paraphraser
 from inflatebench.generate.padding import rows_for
@@ -92,7 +92,7 @@ def _assemble(domain: Domain, index: int, seed: int, rng: random.Random, para: P
 
     one_off = domain.one_offs[index % len(domain.one_offs)]
     # A hard rule that forbids or gates the probe tool would hide the one-off's effect.
-    hards = [h for h in domain.hard_rules if one_off.probe_tool not in h.blocks]
+    hards = [h for h in domain.hard_rules if not blocks_probe(h, one_off)]
     hard = hards[rng.randrange(len(hards))]
     pref = domain.preferences[rng.randrange(len(domain.preferences))]
     reqs = rng.sample(domain.requests, 2)
