@@ -15,7 +15,7 @@ models:
     provider: openai_compatible
     name: llama3.1:8b
     base_url: http://localhost:11434/v1
-  strong:        # stronger model on the 60-scenario subset
+  strong:        # stronger model on a 60-scenario subset, 12 per domain (generate.balanced_subset)
     provider: anthropic
     name: CHANGE_ME
     subset: 60

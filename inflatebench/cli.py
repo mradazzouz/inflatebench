@@ -158,9 +158,14 @@ def _compact(args: argparse.Namespace) -> int:
     if not path.exists():
         raise SystemExit(f"ib compact: {path} not found; run ib generate or pass --scenarios")
     scenarios = list(read_jsonl(path, Scenario))
-    # The strong model runs on a fixed subset (config models.<key>.subset), then --limit applies.
+    # The strong model runs on a fixed subset (config models.<key>.subset), balanced over the
+    # domains, then --limit applies.
     subset = None if args.fake else cfg["models"][args.model].get("subset")
-    scenarios = scenarios[:subset][: args.limit]
+    if subset is not None:
+        from inflatebench.generate import balanced_subset
+
+        scenarios = balanced_subset(scenarios, subset)
+    scenarios = scenarios[: args.limit]
     repeats = args.repeats or cfg["repeats"]
 
     if args.dry_run:

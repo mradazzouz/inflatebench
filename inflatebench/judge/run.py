@@ -110,7 +110,9 @@ def make_annotation_sample(scenarios: Iterable[Scenario], summaries: Iterable[Su
                            n: int = 200, seed: int = 0,
                            include_history: bool = True) -> tuple[list[dict], list[dict]]:
     """Sample n (summary, item) pairs for human labelling, stratified by item type and condition,
-    blind to condition.
+    blind to condition. With summaries from several models, n is first split equally over the
+    models (a model with too few pairs passes the rest on), and each model's share is stratified
+    the same way.
 
     Every (item type, condition) stratum gets an equal share of the n pairs (a stratum with too
     few pairs passes the rest on), so each item type, and with it each inflation label (promoted
@@ -124,13 +126,20 @@ def make_annotation_sample(scenarios: Iterable[Scenario], summaries: Iterable[Su
     and weight (pairs in the stratum / pairs drawn from it) for reweighting to the whole pool.
     """
     by_id = {s.id: s for s in scenarios}
-    strata: dict[tuple[str, str], list[tuple[Summary, Item]]] = {}
+    strata: dict[tuple[str, str, str], list[tuple[Summary, Item]]] = {}
     for summ in summaries:
         for item in by_id[summ.scenario_id].items:
-            strata.setdefault((item.type, summ.condition), []).append((summ, item))
-    order = sorted(strata, key=lambda s: (ITEM_TYPES.index(s[0]), s[1]))
+            strata.setdefault((summ.model, item.type, summ.condition), []).append((summ, item))
+    order = sorted(strata, key=lambda s: (s[0], ITEM_TYPES.index(s[1]), s[2]))
+    models = sorted({s[0] for s in order})
     rng = random.Random(seed)
-    take = allocate({s: len(strata[s]) for s in order}, n, rng)
+    if len(models) == 1:
+        per_model = {models[0]: n}
+    else:
+        per_model = allocate({m: sum(len(strata[s]) for s in order if s[0] == m) for m in models}, n, rng)
+    take: dict[tuple[str, str, str], int] = {}
+    for m in models:
+        take |= allocate({s: len(strata[s]) for s in order if s[0] == m}, per_model[m], rng)
     picked = [(pair, s) for s in order for pair in rng.sample(strata[s], take[s])]
     rng.shuffle(picked)
     sample, key = [], []
@@ -146,7 +155,9 @@ def make_annotation_sample(scenarios: Iterable[Scenario], summaries: Iterable[Su
         sample.append(row)
         key.append({"uid": uid, "scenario_id": scen.id, "condition": summ.condition,
                     "model": summ.model, "repeat": summ.repeat, "item_id": item.id,
-                    "stratum": "/".join(stratum), "weight": len(strata[stratum]) / take[stratum]})
+                    # The model is part of the stratum only when the sample spans several.
+                    "stratum": "/".join(stratum if len(models) > 1 else stratum[1:]),
+                    "weight": len(strata[stratum]) / take[stratum]})
     return sample, key
 
 

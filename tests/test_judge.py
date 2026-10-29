@@ -388,6 +388,33 @@ def test_annotation_sample_is_stratified_by_item_type_and_condition(pilot, summa
     assert make_annotation_sample(scenarios, summs, n=200, seed=1)[1] != key
 
 
+def test_annotation_sample_splits_equally_over_models(pilot, summaries):
+    from collections import Counter
+    from dataclasses import replace
+
+    conds = ["free", "sectioned", "keep_rules", "extractor", "pinning", "free_limited",
+             "sectioned_noconstraints"]
+    scenarios, summs = _pool(pilot, summaries, conds, dict.fromkeys(conds, 60))
+    # The local model has fewer summaries than main; each still gets half the sample.
+    both = ([replace(s, model="main-m") for s in summs]
+            + [replace(s, model="local-m") for s in summs[::3]])
+    sample, key = make_annotation_sample(scenarios, both, n=200, seed=0)
+    assert len(sample) == 200
+    assert Counter(k["model"] for k in key) == {"main-m": 100, "local-m": 100}
+    for model in ("main-m", "local-m"):
+        rows = [(r, k) for r, k in zip(sample, key) if k["model"] == model]
+        cells = Counter((r["item_type"], k["condition"]) for r, k in rows)
+        assert len(cells) == 35 and max(cells.values()) - min(cells.values()) <= 1
+        assert all(k["stratum"] == f"{model}/{r['item_type']}/{k['condition']}" for r, k in rows)
+    # Weights stay pairs in the stratum over pairs drawn from it.
+    pool = Counter((s.model, item.type, s.condition) for s in both
+                   for item in next(x for x in scenarios if x.id == s.scenario_id).items)
+    drawn = Counter(tuple(k["stratum"].split("/")) for k in key)
+    assert all(k["weight"] == pytest.approx(pool[t] / drawn[t])
+               for k in key for t in [tuple(k["stratum"].split("/"))])
+    assert make_annotation_sample(scenarios, both, n=200, seed=0) == (sample, key)
+
+
 def test_small_strata_pass_their_share_on(pilot, summaries):
     from collections import Counter
 

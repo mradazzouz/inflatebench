@@ -9,6 +9,7 @@ from inflatebench.cli import main
 from inflatebench.generate import (
     HELDOUT_SEED,
     Paraphraser,
+    balanced_subset,
     build_scenario,
     factors,
     generate,
@@ -203,6 +204,26 @@ def test_heldout_set_is_balanced_reproducible_and_separate(full):
         one_offs = [next(i.key for i in s.items if i.id == "o1") for s in held if s.domain == d]
         assert len(set(one_offs)) == 8  # every one-off of the domain once
         assert Counter(s.cue for s in held if s.domain == d) == {"explicit": 4, "implicit": 4}
+
+
+def test_balanced_subset_takes_12_per_domain_balanced_over_factors(full):
+    sub = balanced_subset(full, 60)
+    assert balanced_subset(full, 60) == sub and len(sub) == 60
+    assert [s.id for s in sub] == [s.id for s in full if s in sub]  # file order kept
+    assert Counter(s.domain for s in sub) == {d: 12 for d in DOMAINS}
+    for d in DOMAINS:
+        part = [s for s in sub if s.domain == d]
+        assert len({s.template for s in part}) == 12
+        assert Counter(s.length for s in part) == dict.fromkeys(LENGTHS, 4)
+        assert Counter(s.position for s in part) == dict.fromkeys(POSITIONS, 4)
+        assert Counter(s.cue for s in part) == dict.fromkeys(CUES, 6)
+        assert len({(s.length, s.position) for s in part}) == 9
+    # Not the first 60 of the file, which hold only two domains.
+    assert {s.domain for s in full[:60]} == {"coding", "pipeline"}
+    # Other sizes stay spread over the domains; asking for more than there is returns all.
+    assert Counter(s.domain for s in balanced_subset(full, 7)) == {"coding": 2, "pipeline": 2, "ops": 1,
+                                                                   "office": 1, "writing": 1}
+    assert balanced_subset(full, 1000) == full
 
 
 def test_cli_generate_heldout(tmp_path):

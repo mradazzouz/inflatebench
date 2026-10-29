@@ -87,7 +87,7 @@ Write our own prompt text for each condition, modelled on public descriptions; w
 
 - A cheap Claude model through the Batch API, as the main hosted model.
 - One local open model of about 8B parameters through Ollama, so anyone can reproduce results for free.
-- A stronger model on a 60-scenario subset, to test whether inflation shrinks with capability.
+- A stronger model on a 60-scenario subset balanced across domains (12 per domain, 4 at each length and position, 6 at each cue), to test whether inflation shrinks with capability.
 
 Model names live in config.yaml, never in code, so they can be updated as models change. Each condition runs 3 times per scenario with temperature at the provider default, and every call's model name, date and token counts are logged.
 
@@ -114,7 +114,7 @@ The judge also lists any **invented** rules that match no planted item; a rule t
 
 **Judge.** Two judges from different model families score every summary and return JSON (label plus the quoted summary text that supports it). Disagreements go to a third judge.
 
-**Human check.** Before the main run, write the label definitions as a one-page guide. Two people label 200 items blind to condition, sampled at random within strata of item type and condition (an equal share per stratum, so every inflation label can appear); report Cohen's kappa between them and between humans and the judge, overall and per label (one label against the rest), both unweighted on the sample and weighted by the sample weights as an estimate for all items. Proceed only if the unweighted judge-human kappa on the sample is at least 0.7.
+**Human check.** Before the main run, write the label definitions as a one-page guide. Two people label 200 items blind to condition, drawn equally from the main and local models' summaries (100 each) and sampled at random within strata of item type and condition (an equal share per stratum, so every inflation label can appear); report Cohen's kappa between them and between humans and the judge, overall and per label (one label against the rest), both unweighted on the sample and weighted by the sample weights as an estimate for all items. Proceed only if the unweighted judge-human kappa on the sample is at least 0.7.
 
 **Behaviour probe.** The agent model receives the compacted context, the next task and mock tools (for example schedule_job, restart_worker, send_email). A script checks the tool-call arguments for the inflated behaviour defined in each scenario's probe field. This is deterministic and needs no judge. As a baseline, the same agent also acts on the uncompacted history (condition `full`), with the same task, tools and system prompt, once per scenario, model and repeat.
 
