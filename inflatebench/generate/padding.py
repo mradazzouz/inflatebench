@@ -1,13 +1,19 @@
 """Shared helpers for realistic tool-output padding.
 
-Padding is pure observation (logs, listings, tables, drafts) so it never adds
-an instruction of its own. Every helper draws only from the rng it is given.
+Padding is pure observation (logs, listings, tables, drafts) so it never adds an instruction
+of its own. It is also consistent: each domain describes one fixed world (a codebase, a cluster,
+a warehouse, an office, a set of drafts) built from a fixed seed, and a block's output depends
+only on that world and its own command, which names everything that shapes the output (the
+file, the page, the time window, the number of lines). Running the same command twice therefore
+prints the same thing, and two commands about the same thing agree. The scenario's rng only
+chooses which command to run. Padding shows no problems (failures, warnings, nearly full
+disks), no assistant judgement and nothing the user would have to act on.
 """
 
 from __future__ import annotations
 
 import random
-from datetime import datetime, timedelta
+from datetime import datetime
 
 FIRST = ("Anna", "Ben", "Chen", "Dana", "Eli", "Fatima", "Gabor", "Hana", "Ivan", "Julia",
          "Kofi", "Lea", "Marek", "Nora", "Omar", "Petra", "Quinn", "Rosa", "Sami", "Teo")
@@ -20,6 +26,11 @@ VERBS = ("load", "parse", "build", "fetch", "update", "render", "validate", "syn
 BASE_TIME = datetime(2026, 10, 19, 8, 0, 0)
 
 
+def stable(*key: object) -> random.Random:
+    """An rng fixed by `key`: the same world entity or command always gets the same draws."""
+    return random.Random(":".join(map(str, key)))
+
+
 def pick(rng: random.Random, seq):
     return seq[rng.randrange(len(seq))]
 
@@ -28,30 +39,13 @@ def name(rng: random.Random) -> str:
     return f"{pick(rng, FIRST)} {pick(rng, LAST)}"
 
 
-def email(rng: random.Random, domain: str = "example.com", person: str | None = None) -> str:
+def email(rng: random.Random | None, domain: str = "example.com", person: str | None = None) -> str:
     first, last = (person or name(rng)).lower().split()
     return f"{first}.{last}@{domain}"
 
 
 def sha(rng: random.Random, n: int = 7) -> str:
     return "".join(pick(rng, "0123456789abcdef") for _ in range(n))
-
-
-def ident(rng: random.Random) -> str:
-    return f"{pick(rng, VERBS)}_{pick(rng, NOUNS)}"
-
-
-def clock(rng: random.Random, start: datetime | None = None, span_min: int = 600) -> datetime:
-    return (start or BASE_TIME) + timedelta(seconds=rng.randrange(span_min * 60))
-
-
-def times(rng: random.Random, n: int, step_s: int = 40) -> list[datetime]:
-    t = clock(rng)
-    out = []
-    for _ in range(n):
-        t += timedelta(seconds=rng.randrange(1, step_s))
-        out.append(t)
-    return out
 
 
 def table(headers: list[str], rows: list[list[str]]) -> str:

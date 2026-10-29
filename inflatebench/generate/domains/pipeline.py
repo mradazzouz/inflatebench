@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import random
+from datetime import timedelta
 
 from inflatebench.generate.banks import Change, Domain, OneOff, Phrase, request
-from inflatebench.generate.padding import email, ident, name, pick, table, times
+from inflatebench.generate.padding import BASE_TIME, FIRST, LAST, email, pick, stable
+from inflatebench.generate.padding import table as table_text
 
 # One setting in every scenario: the data side of an online shop (CRM export, order ETL into
 # the warehouse, reports for finance).
@@ -59,7 +61,7 @@ REQUESTS = (
     request("data-quality report", "Add a data-quality report.",
             "Report: 2.1% invalid emails, 0.4% invalid phone numbers."),
     request("profile the source files", "Profile the source files.",
-            "12 files, 1.4 GB; 41 columns; 3 columns have more than 5% nulls."),
+            "12 files, 1.4 GB; 41 columns; no column has more than 2% nulls."),
     request("index on customer_id", "Add an index on customer_id in the orders table.",
             "CREATE INDEX idx_orders_cust ON orders (customer_id); took 0.8s"),
     request("ISO format", "Convert the dates to ISO format.",
@@ -220,73 +222,136 @@ ONE_OFFS = (
            resolved=("I looked at the intermediate joins, they're fine.", "Good.")),
 )
 
+# --- Padding: one fixed warehouse --------------------------------------------------------------
+# Tables with their columns (name, type, nullable). Rows are fixed by their id, so every query,
+# preview and profile agrees with every other.
+TABLES = {
+    "staging.orders": [("order_id", "bigint", "NO"), ("customer_id", "bigint", "NO"),
+                       ("created_at", "timestamp", "NO"), ("amount_eur", "numeric(12,2)", "NO"),
+                       ("status", "varchar", "NO"), ("channel", "varchar", "NO"), ("sku", "varchar", "NO"),
+                       ("quantity", "integer", "NO")],
+    "staging.customers": [("customer_id", "bigint", "NO"), ("name", "varchar", "NO"), ("email", "varchar", "YES"),
+                          ("country", "varchar", "YES"), ("segment", "varchar", "NO"), ("region", "varchar", "NO"),
+                          ("created_at", "timestamp", "NO")],
+    "staging.events": [("event_id", "bigint", "NO"), ("customer_id", "bigint", "NO"), ("event_type", "varchar", "NO"),
+                       ("channel", "varchar", "NO"), ("created_at", "timestamp", "NO")],
+}
+FIRST_ID = {"staging.orders": 500001, "staging.customers": 10001, "staging.events": 9000001}
+# Jobs whose runs the padding logs (steps, rows per run). The customer jobs are left out: planted
+# items give customer row counts.
+JOBS = {"orders_daily": (("read_order_logs", "cast_types", "join_customers", "write_orders"), (4000, 9000)),
+        "events_daily": (("read_event_logs", "cast_types", "write_events"), (120000, 400000)),
+        "vendor_feed": (("read_feed", "cast_types", "write_feed"), (85000, 91000)),
+        "sales_report": (("read_orders", "aggregate_regions", "write_report"), (4000, 9000))}
+DBT_VERSION = "1.8.7"
+DBT_MODELS = ("stg_orders", "stg_order_items", "stg_customers", "stg_events", "stg_payments", "stg_refunds",
+              "stg_products", "stg_shipments", "stg_returns", "stg_sessions", "stg_crm_contacts", "stg_vendor_feed")
+COUNTRIES = ("DE", "FR", "HU", "PL", "ES", "IT", "NL", "AT")
+REGIONS = ("north", "south", "east", "west")
+
+
+def _value(table: str, row_id: int, col: str, kind: str) -> str:
+    r = stable("pipeline", table, row_id, col)
+    if col == FIRST_COL[table]:
+        return str(row_id)
+    if col == "customer_id":
+        return str(FIRST_ID["staging.customers"] + r.randrange(18000))
+    if col in ("name", "email"):
+        who = pick(stable("pipeline", "customer", row_id), CUSTOMER_NAMES)
+        return who if col == "name" else email(None, pick(r, ("mail.de", "post.hu", "web.fr")), who)
+    if kind == "timestamp":
+        return f"2026-10-{1 + (row_id * 7) % 18:02d} {r.randint(7, 22):02d}:{r.randint(0, 59):02d}:00"
+    if kind.startswith("numeric"):
+        return f"{r.uniform(5, 900):.2f}"
+    if kind == "integer":
+        return str(r.randint(1, 4))
+    return pick(r, {"status": ("paid", "shipped", "paid", "delivered"), "channel": ("web", "app", "b2b"),
+                    "sku": tuple(f"SKU-{n}" for n in range(1040, 1060)), "country": COUNTRIES,
+                    "segment": ("retail", "b2b", "wholesale"), "region": REGIONS,
+                    "event_type": ("page_view", "add_to_cart", "checkout")}[col])
+
+
+FIRST_COL = {t: cols[0][0] for t, cols in TABLES.items()}
+CUSTOMER_NAMES = tuple(f"{a} {b}" for a in FIRST for b in LAST)
+
+
+def _rows(rng: random.Random, rows: int) -> tuple[str, int, int]:
+    table = pick(rng, sorted(TABLES))
+    n = max(2, min(rows, 40))
+    return table, FIRST_ID[table] + 50 * rng.randrange(200), n
+
+
+def _query(rng: random.Random, rows: int) -> tuple[str, str]:
+    table, first, n = _rows(rng, rows)
+    cols = [c for c in TABLES[table] if c[0] not in ("name", "email")][:5]
+    key = FIRST_COL[table]
+    body = [[_value(table, i, c, k) for c, k, _ in cols] for i in range(first, first + n)]
+    sql = (f"SELECT {', '.join(c for c, _, _ in cols)} FROM {table} WHERE {key} >= {first} "
+           f"ORDER BY {key} LIMIT {n};")
+    return f"Running query: {sql}", table_text([c for c, _, _ in cols], body) + f"\n({n} rows)"
+
+
+def _sample_rows(rng: random.Random, rows: int) -> tuple[str, str]:
+    first = FIRST_ID["staging.customers"] + 50 * rng.randrange(200)
+    n = max(2, min(rows, 40))
+    cols = ("customer_id", "name", "email", "country")
+    body = [[_value("staging.customers", i, c, "varchar") for c in cols] for i in range(first, first + n)]
+    return (f"Previewing {n} rows of staging.customers from customer_id {first}",
+            table_text(list(cols), body))
+
+
+def _schema(rng: random.Random, rows: int) -> tuple[str, str]:
+    tbl = pick(rng, sorted(TABLES))
+    return f"Describing {tbl}", table_text(["column", "type", "nullable"], [list(c) for c in TABLES[tbl]])
+
+
+def _profile(rng: random.Random, rows: int) -> tuple[str, str]:
+    tbl = pick(rng, sorted(TABLES))
+    # Only staging.customers has nullable columns: email is always filled, country nearly.
+    body = [[col, kind, {"country": "1.3%"}.get(col, "0.0%")] for col, kind, _ in TABLES[tbl]]
+    return f"Profiling {tbl}", table_text(["column", "type", "null_pct"], body)
+
+
+def _dbt(rng: random.Random, rows: int) -> tuple[str, str]:
+    models = sorted(rng.sample(DBT_MODELS, max(1, min(len(DBT_MODELS), rows - 3))))
+    out = [f"Running with dbt={DBT_VERSION}",
+           f"Found {len(DBT_MODELS)} models, {2 * len(DBT_MODELS)} tests, 3 sources", ""]
+    for i, mdl in enumerate(models):
+        secs = stable("pipeline", "dbt", mdl).uniform(0.2, 4)
+        out.append(f"{i + 1} of {len(models)} OK created view model staging.{mdl} [CREATE VIEW in {secs:.2f}s]")
+    out.append("Completed successfully")
+    return f"Running: dbt run --select {' '.join(models)}", "\n".join(out)
+
+
+def _job_log(rng: random.Random, rows: int) -> tuple[str, str]:
+    """The step log of one manual run; fixed by the job and its start time."""
+    job = pick(rng, sorted(JOBS))
+    start = BASE_TIME + timedelta(days=rng.randrange(5), hours=1 + rng.randrange(8), minutes=5 * rng.randrange(12))
+    r = stable("pipeline", "run", job, start)
+    steps, (lo, hi) = JOBS[job]
+    t, rows_in, out = start, r.randint(lo, hi), []
+    for step in steps:
+        rows_out = rows_in if step != "aggregate_regions" else len(REGIONS) * 30
+        t += timedelta(seconds=r.randint(4, 90))
+        out.append(f"{t:%Y-%m-%d %H:%M:%S} INFO  {job}.{step}: {rows_in} rows in, {rows_out} rows out")
+        rows_in = rows_out
+    out.append(f"{t:%Y-%m-%d %H:%M:%S} INFO  {job}: finished")
+    return f"Reading the log of the {job} run started {start:%Y-%m-%d %H:%M}", "\n".join(out)
+
+
+# Questions, thanks and clarifications. Every answer is a fact the padding below agrees with.
 NEUTRAL = (
-    ("How long did the last warehouse load take?", "About twelve minutes end to end."),
+    ("Which job loads the orders into the warehouse?", "orders_daily; it reads the order logs and writes staging.orders."),
     ("Thanks, that's clear.", "You're welcome."),
-    ("Which table do the finance reports read from?", "They read from the mart schema."),
-    ("Is the CRM export the big file in the bucket?", "Yes, it's the largest of the twelve files."),
-    ("Are the null shares in the customer columns normal?", "Yes, they're close to last month's levels."),
-    ("Nice, the numbers look plausible.", "They match last month's totals within a percent."),
+    ("Which columns does staging.orders have?",
+     ", ".join(c for c, _, _ in TABLES["staging.orders"][:-1]) + " and " + TABLES["staging.orders"][-1][0] + "."),
+    ("Which dbt version do we run?", f"dbt {DBT_VERSION}."),
+    ("Is email nullable in staging.customers?", "Yes, the column allows nulls."),
+    ("Great, thanks.", "You're welcome."),
     ("What does the cast step in the ETL logs do?", "It converts text columns to their proper types."),
     ("Who reads the sales report?", "Mostly finance and the shop managers."),
     ("How many sources feed the warehouse?", "Three: the shop database, the CRM and the vendor feed."),
 )
-
-COLUMNS = ("customer_id", "order_id", "country", "created_at", "amount_eur", "status", "channel",
-           "email_domain", "segment", "region", "sku", "quantity")
-JOBS = ("crm_etl", "orders_daily", "sales_report", "customers_clean", "vendor_feed")
-
-
-def _query(rng: random.Random, rows: int) -> tuple[str, str]:
-    cols = rng.sample(COLUMNS, 4)
-    body = []
-    for _ in range(rows):
-        body.append([str(rng.randint(10000, 99999)) if "id" in c else
-                     f"{rng.uniform(5, 900):.2f}" if "amount" in c else
-                     pick(rng, ("DE", "FR", "HU", "PL", "ES", "IT", "NL")) if c == "country" else
-                     f"2026-10-{rng.randint(1, 28):02d}" if c == "created_at" else
-                     pick(rng, ("paid", "open", "refunded", "shipped", "web", "app", "b2b", "north", "south"))
-                     for c in cols])
-    sql = f"SELECT {', '.join(cols)} FROM staging.{pick(rng, ('orders', 'customers', 'events'))} LIMIT {rows};"
-    return f"Running query: {sql}", table(cols, body) + f"\n({rows} rows)"
-
-
-def _job_log(rng: random.Random, rows: int) -> tuple[str, str]:
-    job = pick(rng, JOBS)
-    out = []
-    for t in times(rng, rows):
-        out.append(f"{t:%Y-%m-%d %H:%M:%S} INFO  {job}.{ident(rng)}: "
-                   f"{pick(rng, ('read', 'wrote', 'filtered', 'joined', 'cast'))} {rng.randint(100, 900000)} rows "
-                   f"({rng.uniform(0.1, 40):.1f}s)")
-    return f"Tailing the log for {job}", "\n".join(out)
-
-
-def _schema(rng: random.Random, rows: int) -> tuple[str, str]:
-    tbl = pick(rng, ("staging.orders", "staging.customers", "mart.revenue", "staging.events"))
-    body = [[c, pick(rng, ("bigint", "varchar", "date", "numeric(12,2)", "timestamp")),
-             pick(rng, ("YES", "NO"))] for c in rng.sample(COLUMNS, min(len(COLUMNS), rows))]
-    return f"Describing {tbl}", table(["column", "type", "nullable"], body)
-
-
-def _profile(rng: random.Random, rows: int) -> tuple[str, str]:
-    body = [[c, f"{rng.uniform(0, 12):.1f}%", str(rng.randint(2, 50000)), f"{rng.uniform(1, 40):.1f}"]
-            for c in rng.sample(COLUMNS, min(len(COLUMNS), rows))]
-    return "Profiling the staging tables", table(["column", "null_pct", "distinct", "avg_len"], body)
-
-
-def _dbt(rng: random.Random, rows: int) -> tuple[str, str]:
-    out = [f"Running with dbt=1.8.{rng.randint(0, 9)}", f"Found {rows} models, {rows * 2} tests, 4 sources", ""]
-    for i in range(rows):
-        out.append(f"{i + 1} of {rows} OK created view model staging.stg_{ident(rng)} "
-                   f"[CREATE VIEW in {rng.uniform(0.1, 9):.2f}s]")
-    return "Running: dbt run --select staging", "\n".join(out)
-
-
-def _sample_rows(rng: random.Random, rows: int) -> tuple[str, str]:
-    body = [[str(rng.randint(10000, 99999)), (who := name(rng)), email(rng, pick(rng, ("mail.de", "post.hu", "web.fr")), who),
-             pick(rng, ("DE", "HU", "FR", "AT"))] for _ in range(rows)]
-    return "Previewing rows from staging.customers", table(["customer_id", "name", "contact", "country"], body)
-
 
 DOMAIN = Domain(
     name="pipeline",

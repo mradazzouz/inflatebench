@@ -69,15 +69,24 @@ def _order(rng: random.Random, events: dict[str, _Event]) -> list[str]:
             return names
 
 
-def _padding(rng: random.Random, domain: Domain, budget: int, keys: list[str]) -> list[Message]:
+def _padding(rng: random.Random, domain: Domain, budget: int, keys: list[str], seen: set[str]) -> list[Message]:
+    """Padding blocks for `budget` characters. A command already run in the scenario (`seen`)
+    prints the same output again, so it is consistent, but a new command is preferred."""
     out: list[Message] = []
     while budget > MIN_BLOCK:
+        repeat = None
         for _ in range(10):
             action, output = domain.padders[rng.randrange(len(domain.padders))](rng, rows_for(budget))
-            if not any(count_key(action, k) or count_key(output, k) for k in keys):
+            if any(count_key(action, k) or count_key(output, k) for k in keys):
+                continue
+            if action not in seen:
                 break
+            repeat = repeat or (action, output)
         else:
-            break
+            if repeat is None:
+                break
+            action, output = repeat
+        seen.add(action)
         out += [Message("assistant", action), Message("tool", output)]
         budget -= len(action) + len(output)
     return out
@@ -140,6 +149,7 @@ def _assemble(domain: Domain, index: int, seed: int, rng: random.Random, para: P
         gaps[i] = (pad_total - pad_before) // (len(events) - k)
 
     keys = [ev.item.key for ev in events if ev.item]
+    seen: set[str] = set()
     history: list[Message] = []
     items: list[Item] = []
     for ev, gap in zip(events, gaps):
@@ -147,7 +157,7 @@ def _assemble(domain: Domain, index: int, seed: int, rng: random.Random, para: P
             ev.item.turn = len(history)
             items.append(ev.item)
         history += ev.messages
-        history += _padding(rng, domain, int(gap * rng.uniform(0.8, 1.2)), keys)
+        history += _padding(rng, domain, int(gap * rng.uniform(0.8, 1.2)), keys, seen)
 
     items.sort(key=lambda i: ["h1", "o1", "p1", "r1", "r2", "c1"].index(i.id))
     o1 = next(i for i in items if i.id == "o1")
