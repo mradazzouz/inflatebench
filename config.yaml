@@ -1,7 +1,8 @@
 # Model names live here, never in code. Fill in the provider model ids before a run.
 # API keys are read only from environment variables: ANTHROPIC_API_KEY for anthropic,
 # and the variable named by api_key_env for openai_compatible (none needed for Ollama).
-# Optional per model: max_tokens, prompt_cache (anthropic, default true), cache_ttl (5m | 1h).
+# Optional per model: max_tokens, prompt_cache (anthropic, default true), cache_ttl (5m | 1h),
+# batch (anthropic: run ib compact and ib judge through the Message Batches API at half price).
 models:
   main:          # cheap hosted model, run through the Batch API
     provider: anthropic
@@ -15,6 +16,24 @@ models:
     provider: anthropic
     name: CHANGE_ME
     subset: 60
+  # Hosted models through the OpenAI-compatible provider. Each reads its own key from the
+  # environment variable named by api_key_env; these providers have no batch API here, so
+  # their calls are made one at a time. Uncomment and fill in a model id to use one.
+  # openai:
+  #   provider: openai_compatible
+  #   name: CHANGE_ME              # an OpenAI model id
+  #   base_url: https://api.openai.com/v1
+  #   api_key_env: OPENAI_API_KEY
+  # gemini:        # Google Gemini through its OpenAI-compatible endpoint
+  #   provider: openai_compatible
+  #   name: CHANGE_ME              # a Gemini model id
+  #   base_url: https://generativelanguage.googleapis.com/v1beta/openai
+  #   api_key_env: GEMINI_API_KEY
+  # open_hosted:   # an open-weights model on a hosted provider (Together AI shown)
+  #   provider: openai_compatible
+  #   name: CHANGE_ME              # the provider's model id, e.g. org/model-name
+  #   base_url: https://api.together.xyz/v1
+  #   api_key_env: TOGETHER_API_KEY
 
 # Judges for ib judge: two families score every summary; the third breaks ties. Each is a
 # key under models: above, or an inline entry like {provider: anthropic, name: some-model-id}.

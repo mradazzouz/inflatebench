@@ -111,9 +111,26 @@ def _make_llm(cfg: dict[str, Any], model_key: str, fake: bool, stage: str = "com
         raise SystemExit(f"ib {stage}: {e}") from None
 
 
+def _call_row(c: Completion, scenario_id: str, condition: str, repeat: int) -> dict[str, Any]:
+    return {
+        "scenario_id": scenario_id,
+        "condition": condition,
+        "repeat": repeat,
+        "model": c.model,
+        "date": c.date or date.today().isoformat(),
+        "input_tokens": c.input_tokens,
+        "output_tokens": c.output_tokens,
+        "cache_write_tokens": c.cache_write_tokens,
+        "cache_read_tokens": c.cache_read_tokens,
+        "cost": c.cost,
+        "cached": c.cached,
+        "batch": c.batch,
+    }
+
+
 def _compact(args: argparse.Namespace) -> int:
     from inflatebench.conditions import get_condition
-    from inflatebench.models import CachedLLM, DiskCache
+    from inflatebench.models import CachedLLM, Deferred, DiskCache, Pending, run_phases
 
     cfg = load_config(args.config)
     if args.model not in cfg["models"]:
@@ -146,32 +163,32 @@ def _compact(args: argparse.Namespace) -> int:
         return 0
 
     llm, model = _make_llm(cfg, args.model, args.fake)
-    cache = DiskCache(cfg["paths"]["cache"])
-    summaries, calls = [], []
-    for repeat in range(repeats):
-        # The repeat is part of the cache key, so repeats are fresh samples that still resume.
-        logged = _Logged(CachedLLM(llm, cache, model=f"{model}#repeat{repeat}"))
-        for scenario in scenarios:
-            for condition in conditions:
-                start = len(logged.completions)
-                messages = condition.compact(scenario.history, logged)
-                summaries.append(Summary(scenario.id, condition.name, model, repeat, messages))
-                for c in logged.completions[start:]:
-                    calls.append(
-                        {
-                            "scenario_id": scenario.id,
-                            "condition": condition.name,
-                            "repeat": repeat,
-                            "model": c.model,
-                            "date": c.date or date.today().isoformat(),
-                            "input_tokens": c.input_tokens,
-                            "output_tokens": c.output_tokens,
-                            "cache_write_tokens": c.cache_write_tokens,
-                            "cache_read_tokens": c.cache_read_tokens,
-                            "cost": c.cost,
-                            "cached": c.cached,
-                        }
-                    )
+    # Batch API when the model asks for it (--fake always batches, to exercise that path).
+    batch = (args.fake or bool(cfg["models"][args.model].get("batch"))) and not args.no_batch
+    # The repeat is part of the cache key, so repeats are fresh samples that still resume.
+    deferred = Deferred(CachedLLM(llm, DiskCache(cfg["paths"]["cache"]), model=model), batch=batch)
+    llms = [deferred.view(f"{model}#repeat{repeat}") for repeat in range(repeats)]
+
+    def step() -> tuple[list[Summary], list[dict[str, Any]]]:
+        summaries, calls = [], []
+        for repeat, repeat_llm in enumerate(llms):
+            logged = _Logged(repeat_llm)
+            for scenario in scenarios:
+                for condition in conditions:
+                    start = len(logged.completions)
+                    try:
+                        messages = condition.compact(scenario.history, logged)
+                    except Pending:
+                        continue  # answered in the next phase
+                    summaries.append(Summary(scenario.id, condition.name, model, repeat, messages))
+                    calls += [_call_row(c, scenario.id, condition.name, repeat)
+                              for c in logged.completions[start:]]
+        return summaries, calls
+
+    # Phase 1 sends every first call (the summaries, pinning's extraction); phase 2 the calls
+    # that come after it (the extractor's list, pinning's summary).
+    phases = run_phases(step, [deferred])
+    summaries, calls = step()
 
     run_dir = Path(cfg["paths"]["runs"]) / args.run_id
     write_jsonl(run_dir / "summaries.jsonl", summaries)
@@ -181,7 +198,8 @@ def _compact(args: argparse.Namespace) -> int:
     (run_dir / "run.json").write_text(json.dumps(run_info, indent=2) + "\n", encoding="utf-8")
     with (run_dir / "calls.jsonl").open("w", encoding="utf-8") as f:
         f.writelines(json.dumps(c) + "\n" for c in calls)
-    print(f"wrote {len(summaries)} summaries to {run_dir / 'summaries.jsonl'}")
+    print(f"wrote {len(summaries)} summaries to {run_dir / 'summaries.jsonl'} "
+          f"({phases} phases of {'batched' if batch else 'single'} calls)")
     return 0
 
 
@@ -212,9 +230,12 @@ def _usage(path: Path):
     return UsageLog(path)
 
 
-def _judge_llm(cfg: dict[str, Any], ref: Any, usage: Any) -> tuple[LLM, str]:
-    """A judge from config: a key under models:, or an inline {provider, name, ...} entry."""
-    from inflatebench.models import CachedLLM, DiskCache, Prices
+def _judge_llm(cfg: dict[str, Any], ref: Any, usage: Any, no_batch: bool = False) -> tuple[LLM, str]:
+    """A judge from config: a key under models:, or an inline {provider, name, ...} entry.
+
+    Every judge runs in phases (models.Deferred); those with `batch: true` use the Batch API.
+    """
+    from inflatebench.models import CachedLLM, Deferred, DiskCache, Prices
     from inflatebench.models.factory import PLACEHOLDER, build_provider, check_entry, model_entry
 
     if ref in (None, PLACEHOLDER):
@@ -226,12 +247,12 @@ def _judge_llm(cfg: dict[str, Any], ref: Any, usage: Any) -> tuple[LLM, str]:
         raise SystemExit(f"ib judge: {e}") from None
     cached = CachedLLM(llm, DiskCache(cfg["paths"]["cache"]),
                        model=f"{entry['provider']}:{entry['name']}", usage=usage)
-    return cached, entry["name"]
+    return Deferred(cached, batch=bool(entry.get("batch")) and not no_batch), entry["name"]
 
 
 def _judge(args: argparse.Namespace) -> int:
     from inflatebench.judge import LLMJudge, PanelJudge, judge_run
-    from inflatebench.models import CachedLLM, DiskCache, FakeLLM
+    from inflatebench.models import CachedLLM, Deferred, DiskCache, FakeLLM
 
     cfg = load_config(args.config)
     run_dir = _run_dir(cfg, args, "summaries.jsonl")
@@ -239,8 +260,9 @@ def _judge(args: argparse.Namespace) -> int:
     usage = _usage(run_dir / "judge_calls.jsonl")
     if args.fake:
         cache = DiskCache(cfg["paths"]["cache"])
-        judges = [LLMJudge(f"fake-{k}", CachedLLM(FakeLLM(_fake_judge_responder), cache,
-                                                  model=f"fake-judge-{k}", usage=usage))
+        judges = [LLMJudge(f"fake-{k}", Deferred(CachedLLM(FakeLLM(_fake_judge_responder), cache,
+                                                           model=f"fake-judge-{k}", usage=usage),
+                                                 batch=not args.no_batch))
                   for k in "abc"]
     else:
         refs = list(cfg.get("judges") or []) + [cfg.get("tiebreak")]
@@ -248,7 +270,7 @@ def _judge(args: argparse.Namespace) -> int:
             raise SystemExit("ib judge: config.yaml needs exactly two judges and a tiebreak")
         judges = []
         for ref in refs:
-            llm, name = _judge_llm(cfg, ref, usage)
+            llm, name = _judge_llm(cfg, ref, usage, args.no_batch)
             judges.append(LLMJudge(name, llm))
     try:
         panel = PanelJudge(*judges)
@@ -323,12 +345,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--fake", action="store_true", help="use FakeLLM instead of a provider")
     p.add_argument("--dry-run", action="store_true", help="estimate tokens and cost without calling models")
     p.add_argument("--output-tokens", type=int, default=1000, help="assumed output tokens per call (dry run)")
+    no_batch = "single calls even when the model has batch: true in config.yaml"
+    p.add_argument("--no-batch", action="store_true", help=no_batch)
 
     scen_help = "scenarios path (default: the one ib compact used for this run)"
     p = sub.add_parser("judge", help="write runs/<run_id>/labels.jsonl")
     p.add_argument("--run-id", required=True)
     p.add_argument("--scenarios", default=None, help=scen_help)
     p.add_argument("--fake", action="store_true", help="use fake judges instead of providers")
+    p.add_argument("--no-batch", action="store_true", help=no_batch)
 
     p = sub.add_parser("probe", help="write runs/<run_id>/probes.jsonl")
     p.add_argument("--run-id", required=True)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, Callable
 
 from inflatebench.models import BatchError, BatchHandle, Completion, Request
@@ -41,7 +42,8 @@ class FakeLLM:
 
     def submit_batch(self, requests: list[Request]) -> BatchHandle:
         handle = BatchHandle(id=f"fake-batch-{len(self.batches)}", size=len(requests))
-        self.batches[handle.id] = {r.key(): self.complete(r.messages, **r.params) for r in requests}
+        self.batches[handle.id] = {r.key(): replace(self.complete(r.messages, **r.params), batch=True)
+                                   for r in requests}
         return handle
 
     def batch_done(self, handle: BatchHandle) -> bool:

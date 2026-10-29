@@ -8,16 +8,31 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from inflatebench.judge.judges import PanelJudge
+from inflatebench.models import Deferred, Pending, run_phases
 from inflatebench.schema import Label, Scenario, Summary, read_jsonl, write_jsonl
 
 
 def judge_summaries(panel: PanelJudge, scenarios: Iterable[Scenario],
                     summaries: Iterable[Summary]) -> list[Label]:
+    """Labels for every summary. Judges on models.Deferred LLMs are batched in phases:
+    both judges' calls first, then the tie-break calls (and any retries of malformed replies).
+    """
     by_id = {s.id: s for s in scenarios}
-    out: list[Label] = []
-    for summary in summaries:
-        out += panel.label(by_id[summary.scenario_id], summary)
-    return out
+    summaries = list(summaries)
+
+    def step() -> list[Label]:
+        out: list[Label] = []
+        for summary in summaries:
+            try:
+                out += panel.label(by_id[summary.scenario_id], summary)
+            except Pending:
+                continue  # answered in the next phase
+        return out
+
+    deferred = [j.llm for j in panel.judges if isinstance(j.llm, Deferred)]
+    if deferred:
+        run_phases(step, deferred)
+    return step()
 
 
 def judge_run(panel: PanelJudge, scenarios_path: str | Path, run_dir: str | Path) -> Path:
