@@ -86,6 +86,7 @@ class OpenAICompatibleLLM:
         prices: Prices | None = None,
         max_tokens: int | None = None,
         params: dict[str, Any] | None = None,
+        stop_sequences: bool = True,
         transport: Transport | None = None,
         retry_attempts: int = 6,
         sleep: Callable[[float], None] = time.sleep,
@@ -94,7 +95,8 @@ class OpenAICompatibleLLM:
 
         `max_tokens` caps the whole completion, hidden reasoning included, so set it generously
         for reasoning models. `params` are extra request fields sent on every call (for example
-        reasoning_effort), from the model's `params:` entry in config.yaml.
+        reasoning_effort), from the model's `params:` entry in config.yaml. `stop_sequences`
+        False drops the `stop` field, for endpoints that reject it (some reasoning models).
         """
         self.model = model
         self.url = base_url.rstrip("/") + "/chat/completions"
@@ -107,6 +109,7 @@ class OpenAICompatibleLLM:
         self.prices = prices or Prices()
         self.max_tokens = max_tokens
         self.extra = dict(params or {})
+        self.stop_sequences = stop_sequences
         self.post = transport or urllib_transport()
         self.retry_attempts = retry_attempts
         self.sleep = sleep
@@ -115,15 +118,19 @@ class OpenAICompatibleLLM:
     def settings(self) -> dict[str, Any]:
         """Part of the cache key; the endpoint is included because it decides which weights answer."""
         settings = {"provider": "openai_compatible", "model": self.model, "url": self.url, "max_tokens": self.max_tokens}
-        # Only when set, so cache entries made without extra params keep their keys.
-        return settings | ({"params": self.extra} if self.extra else {})
+        # Only when set, so cache entries made without them keep their keys.
+        return (settings | ({"params": self.extra} if self.extra else {})
+                | ({} if self.stop_sequences else {"stop_sequences": False}))
 
     def params(self, messages: list[Message], kw: dict[str, Any], model: str | None = None) -> dict[str, Any]:
         system, turns = to_chat(messages)
         body: dict[str, Any] = {"model": model or self.model, "messages": ([{"role": "system", "content": system}] if system else []) + turns}
         if self.max_tokens is not None:
             body["max_tokens"] = self.max_tokens
-        return body | self.extra | strip_key_only(kw)
+        kw = strip_key_only(kw)
+        if not kw.get("stop") or not self.stop_sequences:
+            kw.pop("stop", None)
+        return body | self.extra | kw
 
     def complete(self, messages: list[Message], **kw: Any) -> Completion:
         body = self.params(messages, kw)

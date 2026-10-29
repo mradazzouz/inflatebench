@@ -100,6 +100,9 @@ class AnthropicLLM:
         system, turns = to_chat(messages)
         kw = strip_key_only(kw)
         params: dict[str, Any] = {"model": self.model, "max_tokens": kw.pop("max_tokens", self.max_tokens)}
+        if kw.get("stop"):
+            params["stop_sequences"] = list(kw["stop"])
+        kw.pop("stop", None)
         cc: dict[str, str] | None = None
         if self.prompt_cache:
             cc = {"type": "ephemeral"} | ({"ttl": self.cache_ttl} if self.cache_ttl else {})

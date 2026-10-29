@@ -19,13 +19,19 @@ _batch_ids = itertools.count()
 
 
 class FakeLLM:
-    """Replies from a list of canned texts (cycled) or a function of the messages."""
+    """Replies from a list of canned texts (cycled) or a function of the messages.
+
+    Like a real provider it ends a reply at the first of the `stop` sequences it is given,
+    unless `stop_sequences` is False (a provider that ignores them).
+    """
 
     supports_batch = True
 
-    def __init__(self, responses: list[str] | Responder | None = None, model: str = "fake") -> None:
+    def __init__(self, responses: list[str] | Responder | None = None, model: str = "fake",
+                 stop_sequences: bool = True) -> None:
         self.responses = responses if responses is not None else ["ok"]
         self.model = model
+        self.stop_sequences = stop_sequences
         self.calls: list[list[Message]] = []
         self.batches: dict[str, dict[str, Completion | BatchError]] = {}
 
@@ -39,13 +45,18 @@ class FakeLLM:
 
     def complete(self, messages: list[Message], **kw: Any) -> Completion:
         self.calls.append(list(messages))
-        text = self._text(messages)
+        text, stop_reason = self._text(messages), ""
+        if self.stop_sequences and kw.get("stop"):
+            cut = min((i for s in kw["stop"] if (i := text.find(s)) >= 0), default=-1)
+            if cut >= 0:
+                text, stop_reason = text[:cut], "stop_sequence"
         return Completion(
             text=text,
             model=self.model,
             input_tokens=sum(len(m.content.split()) for m in messages),
             output_tokens=len(text.split()),
             date=now(),
+            stop_reason=stop_reason,
         )
 
     def submit_batch(self, requests: list[Request]) -> BatchHandle:

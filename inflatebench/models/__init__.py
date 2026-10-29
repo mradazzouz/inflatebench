@@ -12,6 +12,9 @@ from inflatebench.schema import Message
 # Params that only distinguish cache entries (e.g. repeat 0, 1, 2 of the same prompt) or tell
 # the cache how to check the reply (accept_refusal); providers strip them before calling the API.
 KEY_ONLY_PARAMS = frozenset({"repeat", "accept_refusal"})
+# The one per-call param every provider translates itself: `stop`, a list of stop sequences
+# that end the reply (not returned in its text). A provider that cannot stop there drops it,
+# and the caller must cope with text after the stop sequence (probe/agent.py does).
 
 
 @dataclass

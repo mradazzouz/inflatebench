@@ -34,6 +34,7 @@ def probe_context(agent: LLM, scenario: Scenario, context: list[Message], condit
         agent=agent_name,
         probe_called=any(c["tool"] == scenario.probe.tool for c in episode.calls),
         refusal=refusal(episode.final, episode.provider_refused, episode.calls, scenario.probe),
+        discarded=episode.discarded,
     )
 
 
