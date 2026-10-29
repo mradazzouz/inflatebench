@@ -45,6 +45,10 @@ def judge_run(panel: PanelJudge, scenarios_path: str | Path, run_dir: str | Path
     return out
 
 
+# Above this share of flagged final quotes, fix the judge instructions before the main run.
+QUOTE_FLAG_LIMIT = 0.10
+
+
 def quote_flag_rates(labels: Iterable[Label]) -> dict[str, dict[str, Any]]:
     """Per judge: labels with a quote, how many of those quotes were flagged as not in the
     summary after one re-ask, and the rate. Labels resting on absence (no quote) are left out."""
