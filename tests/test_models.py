@@ -551,6 +551,17 @@ def test_ib_compact_runs_the_configured_provider_without_fake(tmp_path):
     assert {"cache_write_tokens", "cache_read_tokens", "cost"} <= set(calls[0])
 
 
+def test_ib_compact_subset_is_balanced_over_domains(tmp_path):
+    path = compact_config(tmp_path, {"provider": "fake", "name": "f", "responses": ["NONE"], "subset": 4})
+    domains = ["coding", "coding", "coding", "ops", "ops", "ops"]
+    scen = tmp_path / "s.jsonl"
+    scen.write_text("".join(json.dumps(scenario(i, 40) | {"domain": d}) + "\n" for i, d in enumerate(domains)))
+    assert main(["--config", path, "compact", "--run-id", "r", "--condition", "free", "--repeats", "1"]) == 0
+    lines = (tmp_path / "runs/r/summaries.jsonl").read_text().splitlines()
+    # 2 per domain (indices 0 and 2 of each domain come first), not the first 4 of the file.
+    assert [json.loads(line)["scenario_id"] for line in lines] == ["s-0", "s-2", "s-3", "s-5"]
+
+
 def test_ib_compact_reports_unconfigured_provider(tmp_path, monkeypatch):
     path = compact_config(tmp_path, {"provider": "anthropic", "name": "CHANGE_ME"})
     with pytest.raises(SystemExit, match="set its name"):

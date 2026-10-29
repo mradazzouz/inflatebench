@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass, replace
+from typing import Sequence
 
 from inflatebench.generate.banks import Domain, Phrase, blocks_probe, count_key, cue_ok, item_cue
 from inflatebench.generate.domains import DOMAINS
@@ -216,6 +217,31 @@ def heldout_indices() -> list[tuple[str, int]]:
     and positions 13 or 14 each."""
     picks = [(name, (3 * d + 2 * m + (m >= 4)) % TEMPLATES) for d, name in enumerate(DOMAINS) for m in range(8)]
     return [(name, k * TEMPLATES + j) for (name, j), k in zip(picks, HELDOUT_OCCURRENCE)]
+
+
+# Indices within a domain's 48 scenarios for a model run on a subset (config models.<key>.subset):
+# 12 different one-off templates, 4 at each length and each position, 6 at each cue, 2 in every
+# cue-length and cue-position cell and at least 1 in every length-position cell.
+SUBSET_INDICES = (0, 2, 7, 11, 20, 22, 29, 31, 33, 37, 44, 46)
+
+
+def balanced_subset(scenarios: Sequence[Scenario], n: int) -> list[Scenario]:
+    """n scenarios spread evenly over the domains (the first n % domains get one more), so a
+    subset never stands for some domains only, as the first n of the file would.
+
+    Within each domain (in file order, as ib generate writes them) the scenarios at
+    SUBSET_INDICES come first, then the rest in order; with 12 per domain the subset is balanced
+    over templates, lengths, positions and cues. Returned in file order.
+    """
+    groups: dict[str, list[int]] = {}
+    for k, s in enumerate(scenarios):
+        groups.setdefault(s.domain, []).append(k)
+    picked: list[int] = []
+    for d, members in enumerate(groups.values()):
+        count = n // len(groups) + (1 if d < n % len(groups) else 0)
+        first = [members[i] for i in SUBSET_INDICES if i < len(members)]
+        picked += (first + [k for k in members if k not in first])[:count]
+    return [scenarios[k] for k in sorted(picked)]
 
 
 def generate_heldout(seed: int = HELDOUT_SEED, paraphraser: Paraphraser | None = None) -> list[Scenario]:

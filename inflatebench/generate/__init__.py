@@ -3,6 +3,7 @@
 from inflatebench.generate.builder import (
     HELDOUT_SEED,
     GenerationError,
+    balanced_subset,
     build_scenario,
     factors,
     generate,
@@ -17,6 +18,7 @@ __all__ = [
     "HELDOUT_SEED",
     "Paraphraser",
     "assert_valid",
+    "balanced_subset",
     "build_scenario",
     "factors",
     "generate",

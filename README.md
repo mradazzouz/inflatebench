@@ -87,7 +87,8 @@ Each stage logs its model calls (`calls.jsonl`, `judge_calls.jsonl`, `probe_call
 with model, date, token counts and cost, and records the models, provider settings, date and
 spend of the stage run in `run.json`, `judge.json` and `probe.json`. Human labels for the judge check are collected
 with `annotation/index.html`. The items for it (`make_annotation_sample` in `judge/run.py`) are
-drawn at random within strata of item type and condition, with an equal share per stratum, so
+drawn at random within strata of item type and condition, with an equal share per stratum (with
+summaries from several models, the sample is first split equally over the models), so
 each item type, and with it each inflation label, gets the same number of items; the sample key
 gives each item's stratum and its weight for reweighting to the whole pool. `human_check`
 reports, for each pair of annotators and each annotator against the judge, the agreement,
