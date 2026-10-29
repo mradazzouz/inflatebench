@@ -14,6 +14,7 @@ import pandas as pd
 
 from inflatebench.generate.validate import one_off_position
 from inflatebench.judge.judges import FINAL
+from inflatebench.judge.parse import same_rule
 from inflatebench.schema import INVENTED, Label, ProbeResult, Scenario
 
 GROUP = ["condition", "model"]
@@ -80,6 +81,60 @@ def invented_frame(labels: Iterable[Label], judge: str = FINAL) -> pd.DataFrame:
              "repeat": l.repeat} for l in labels if l.judge == judge and l.label == INVENTED]
     df = pd.DataFrame(rows, columns=["scenario_id", "condition", "model", "repeat"])
     return df.groupby(list(df.columns)).size().rename("invented").reset_index()
+
+
+def main_judges(labels: Iterable[Label], roles: dict[str, str] | None = None) -> tuple[str, str] | None:
+    """The panel's two main judges: from judge.json's roles ({name: "first" | "second" | ...}) when
+    given, else the two judges (other than final) with the most item labels; the tie-break judge
+    labels only the items they disputed. None when there are fewer than two."""
+    if roles:
+        named = {role: name for name, role in roles.items()}
+        if "first" in named and "second" in named:
+            return named["first"], named["second"]
+    counts: dict[str, int] = {}
+    for lab in labels:
+        if lab.judge != FINAL and lab.item_id is not None:
+            counts[lab.judge] = counts.get(lab.judge, 0) + 1
+    ranked = sorted(counts, key=lambda j: (-counts[j], j))
+    return (ranked[0], ranked[1]) if len(ranked) >= 2 else None
+
+
+def judges_agree(labels: Iterable[Label], judge: str, first: str, second: str) -> tuple[list[Label], int, int]:
+    """`judge`'s labels on which the two main judges agreed, and how many items and invented
+    rules were left out.
+
+    An item is kept when both main judges gave it the same label (the panel tie-breaks every
+    other item, so this drops each tie-broken one, and items a main judge did not label). An
+    invented rule is kept when both main judges listed it (parse.same_rule, as in the panel).
+    """
+    labels = list(labels)
+    key = lambda l: (l.scenario_id, l.condition, l.model, l.repeat)
+    given: dict[tuple, dict[str, str]] = {}
+    invented: dict[tuple, dict[str, list[str]]] = {}
+    for lab in labels:
+        if lab.judge not in (first, second):
+            continue
+        if lab.item_id is None:
+            invented.setdefault(key(lab), {}).setdefault(lab.judge, []).append(lab.quote)
+        else:
+            given.setdefault(key(lab) + (lab.item_id,), {})[lab.judge] = lab.label
+
+    def agreed(lab: Label) -> bool:
+        if lab.item_id is not None:
+            both = given.get(key(lab) + (lab.item_id,), {})
+            return len(both) == 2 and both[first] == both[second]
+        lists = invented.get(key(lab), {})
+        return all(any(same_rule(lab.quote, q) for q in lists.get(j, ())) for j in (first, second))
+
+    kept, items_out, invented_out = [], 0, 0
+    for lab in labels:
+        if lab.judge != judge or agreed(lab):
+            kept.append(lab)
+        elif lab.item_id is None:
+            invented_out += 1
+        else:
+            items_out += 1
+    return kept, items_out, invented_out
 
 
 def probe_frame(probes: Iterable[ProbeResult], scenarios: Iterable[Scenario]) -> pd.DataFrame:

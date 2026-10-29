@@ -215,8 +215,9 @@ def test_fake_judge_labels_kept_and_lost_items(pilot_all):
     assert labels["c1"] == "lost" and labels["o1"] == "correct"
 
 
-def pipeline_config(tmp_path) -> str:
+def pipeline_config(tmp_path, **overrides) -> str:
     cfg = yaml.safe_load(open("config.yaml"))
+    cfg.update(overrides)
     cfg["paths"].update(scenarios=str(tmp_path / "missing.jsonl"), runs=str(tmp_path / "runs"),
                         cache=str(tmp_path / "cache"))
     path = tmp_path / "config.yaml"
@@ -288,7 +289,10 @@ def test_cli_judge_warns_when_too_many_quotes_are_flagged(tmp_path, monkeypatch,
 
 
 def test_cli_stages_report_missing_inputs_and_config(tmp_path):
-    cfg = pipeline_config(tmp_path)
+    # Placeholders as in an unfilled config: no judges and no agent model name.
+    models = yaml.safe_load(open("config.yaml"))["models"]
+    models["main"]["name"] = "CHANGE_ME"
+    cfg = pipeline_config(tmp_path, judges=["CHANGE_ME", "CHANGE_ME"], tiebreak="CHANGE_ME", models=models)
     with pytest.raises(SystemExit, match="summaries.jsonl not found"):
         main(["--config", cfg, "probe", "--run-id", "none", "--fake"])
     with pytest.raises(SystemExit, match="labels.jsonl not found"):
@@ -364,3 +368,18 @@ def test_probe_results_from_before_refusals_still_load():
     old = {"scenario_id": "s", "condition": "free", "model": "m", "repeat": 0, "tool_calls": [],
            "inflated": False, "agent": "a", "probe_called": False}
     assert ProbeResult.from_dict(old).refusal == ""
+
+
+def test_every_model_stage_accepts_no_batch(tmp_path):
+    """compact, judge and probe all take --no-batch; probe always makes single calls."""
+    from inflatebench.cli import build_parser
+
+    for stage in ("compact", "judge", "probe"):
+        assert build_parser().parse_args([stage, "--run-id", "r", "--no-batch"]).no_batch
+    cfg = pipeline_config(tmp_path)
+    run = tmp_path / "runs" / "nb"
+    main(["--config", cfg, "compact", "--run-id", "nb", "--scenarios", str(PILOT), "--fake",
+          "--repeats", "1", "--limit", "1", "--condition", "free", "--no-batch"])
+    assert main(["--config", cfg, "probe", "--run-id", "nb", "--fake", "--no-batch", "--no-full"]) == 0
+    assert json.loads((run / "probe.json").read_text())["batch"] is False
+    assert len(list(read_jsonl(run / "probes.jsonl", ProbeResult))) == 1

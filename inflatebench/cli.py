@@ -342,7 +342,7 @@ def _probe(args: argparse.Namespace) -> int:
                     full=not args.no_full)
     _stage_info(run_dir / "probe.json", {"scenarios": str(scenarios), "agent": name,
                                          "settings": agent.settings, "max_steps": args.max_steps,
-                                         "full_history_baseline": not args.no_full,
+                                         "full_history_baseline": not args.no_full, "batch": False,
                                          "usage": usage.summary()})
     print(f"wrote probes to {out} ({usage.calls} agent calls, {usage.cache_hits} from cache, "
           f"${usage.cost:.4f})")
@@ -411,6 +411,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-full", action="store_true",
                    help="skip the full-history baseline (the agent acting on the uncompacted history)")
     p.add_argument("--fake", action="store_true", help="use a fake agent instead of a provider")
+    # Each agent step depends on the reply before it, so ib probe never batches; the flag is
+    # accepted so the same command line works for compact, judge and probe.
+    p.add_argument("--no-batch", action="store_true",
+                   help="single calls (the default here: ib probe always makes single calls)")
 
     p = sub.add_parser("analyze", help="write runs/<run_id>/report/")
     p.add_argument("--run-id", required=True)

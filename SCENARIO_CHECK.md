@@ -85,6 +85,112 @@ generator's own cue, length and position checks pass).
 
 Regenerating with seed 0 changes 165 of the 240 scenarios, mostly because changed text lengths shift the padding draws.
 
+## Padding consistency
+
+Real-model trial runs showed that summaries turn contradictions and fake problems in the padding
+into to-do items or constraints. From summaries of coding-000: a diff removed `fetch_account`
+while `check_booking` still called it (a NameError); the assistant said "Flask 3.0" while
+`pip install` showed `flask==3.20.2`; and the assistant called the deprecation warnings
+"harmless" without checking, which one summary recorded as a constraint. The padders drew every
+line independently, so nothing tied one block to another.
+
+**What changed.** Each domain now describes one fixed world, built from a fixed seed
+(`padding.stable`), and every block's output depends only on that world and its own command,
+which names everything that shapes the output (file, page, time window, number of lines):
+
+- coding: one codebase of 8 modules and 56 helper functions. `cat`/`sed`, `grep`, `git log`,
+  `git show` and `pytest` all describe the same functions at the same line numbers, and each
+  diff leads to the current text. `pip list`/`pip show` print fixed versions (Flask 3.0.3). Files
+  that planted requests create or change (views, auth, the payment client, the date parser,
+  exporters) are never shown.
+- ops: fixed nodes (12 workers, 3 control plane, as the neutral answer says), pods (never api,
+  worker or demo-api, whose replicas planted items set), disks under 65% on web, monitor and
+  cache hosts, `terraform plan` with no changes, log lines and metrics rows fixed by service and
+  timestamp (only 2xx, p95 within the band the neutral answer quotes).
+- pipeline: fixed tables and columns; rows fixed by their id, so overlapping queries agree; dbt
+  1.8.7 with 12 models and 3 sources (as the neutral answer says); job logs only for jobs whose
+  row counts no planted item gives.
+- office: a fixed inbox (subjects that report, not ask), solved tickets, drive searches, December
+  calendar weeks (Monday to Thursday, never at 10:00 or 11:30) and flight searches to cities no
+  planted trip names.
+- writing: fixed drafts, transcripts, sources and image folders; word counts are computed from
+  the drafts, and the neutral answers about lengths from the same text.
+
+Neutral answers are facts the padding agrees with, never unchecked judgements. Replaced: the
+deprecation-warnings question (now "Which test runner do we use?"), the test-suite duration,
+the original author of the stock module, the booking-schema file (a request creates
+`schemas.py`), the oldest pod, the CRM export size, the null shares, the finance schema, the
+supplier reply, the timesheet reminder and the open-ticket count. The builder prefers commands
+not yet run in the scenario, so long histories rarely repeat a block.
+
+Outside the padding: request and one-off outputs no longer give test-suite counts that differed
+between them (21, 23, 25, 312 tests); db-3's disk is 59% (88% read as a problem to fix); the
+source-file profile reports no column above 2% nulls (it said 3 columns had more than 5%); the
+writing introduction shrinks from 210 to 140 words (1,150 words broke the 1,200-word cap); and
+the office moving-day one-off says Friday 6 November, not 7 November, which is a Saturday in
+2026, the year the padding's dates use.
+
+**Validator checks** (`validate.padding_errors`, run on every generated and ported scenario):
+
+| Check | Rejects |
+| --- | --- |
+| Problems | Padding with `WARN`, `WARNING`, `ERROR`, `FAIL`, `FAILED`, `SKIPPED`, `TODO`, `FIXME`, `Traceback` or `deprecat…` |
+| Rules | Padding with rule language (must, never, always, should, don't, do not, make sure, required, from now on, no exceptions) |
+| Same command | A command that prints two different outputs in one history |
+| Versions | A package shown at two versions, or named by the assistant at a version the tools do not show (`Flask 3.0` against `flask==3.20.2`) |
+| Diffs | A diff that removes a definition, does not add it back, while the name is used elsewhere |
+| Assistant | Any assistant message that corrects itself or judges without checking (actually, sorry, my mistake, correction, harmless, probably, I think, I assume, should be fine, safe to ignore, might be, ...) |
+
+The pilot passes them all. On the scenarios generated before this change, they reject all 240
+main and all 40 held-out scenarios: the same command printing different output (240 and 40),
+problems (79 and 13), two versions of a package (34 and 7), diffs removing a used name (36 and
+7), an assistant naming another version (18 and 5) and unchecked judgements (24 and 3).
+Coding-000 fails on exactly the three defects above.
+
+Tests in `tests/test_padding.py`: the validator rejects each defect
+(`test_validator_rejects_the_defects_found_in_real_summaries`,
+`test_validator_rejects_problems_rules_and_two_outputs_for_one_command`); generated padding shows
+no problems, rules or hedges; one codebase (line numbers, diffs, versions; requested files never
+shown); overlapping log windows and pipeline rows agree; the calendar avoids planted times and
+Fridays; word counts match the drafts; a padder's output depends only on its command; long
+histories rarely repeat a command.
+
+**Regenerated with the same seeds** (`ib generate --n 240 --seed 0`, `ib generate --heldout`).
+Every validator rule and the generator's own cue, length and position checks pass for all 240
+main and 40 held-out scenarios. All 240 main and all 40 held-out scenarios changed, since every
+padding block is new. The planted items (and with them template, cue, length and position) are
+unchanged in 231 main and all 40 held-out scenarios. In office-005, office-021 and office-037
+(template o05) the one-off's date moved to Friday 6 November. In pipeline-008, ops-001,
+office-001, office-002, office-003 and writing-009 the new padding sizes made a different
+generation attempt the first to meet the length and position targets, so the hard rule,
+preference, requests or changed value were drawn anew. The template, cue, length and position
+are unchanged there too.
+
+## Other changes after the trial runs
+
+- **Stale label.** Judges disagreed on a changed value whose old value still appears as current
+  somewhere in the carried-over context (for example verbatim in a pinned or extracted
+  constraint block) while the new value also appears. The rule is now explicit, in the judge
+  prompt and, verbatim, in LABEL_GUIDE.md with a worked example (`STALE_RULE`, `STALE_EXAMPLE`
+  in `judge/rubric.py`). The whole text counts. It is `stale` when the old value stands anywhere as
+  current and nothing says it was replaced, even if the new value appears elsewhere. It is
+  `correct` when some place marks the old value as replaced, even if the old instruction is also
+  kept word for word. The sync test (`test_label_guide_matches_rubric`) now also checks the
+  rule and the example; `test_judge_prompt_states_the_stale_rule_with_its_example` checks the
+  prompt.
+- **Robustness: judges agree.** `ib analyze` recomputes the inflation rates and precision/recall
+  on the items the two main judges agreed on (every tie-broken item left out) and on the
+  invented rules both listed: `inflation_rates_judges_agree.csv`,
+  `precision_recall_judges_agree.csv` and `robustness_judges_agree` in `summary.json`, next to
+  the unflagged tables. Tests: `test_judges_agree_robustness_drops_tie_broken_items_and_invented_rules`,
+  `test_judges_agree_robustness_needs_two_main_judges`, `test_analyze_run_reads_judge_roles_from_judge_json`.
+- **Flags.** `ib judge` already had `--no-batch`; `ib probe` now accepts it too and records
+  `"batch": false` in `probe.json` (each agent step depends on the last reply, so probes are
+  never batched). Test: `test_every_model_stage_accepts_no_batch`.
+- **Tests and the filled-in config.** Five tests read the repository's `config.yaml` and
+  assumed its placeholders (an Ollama `local` model, no prices, no judges). Since the
+  preregistration addendum filled it in, they build the config they need themselves.
+
 ## Pilot scenarios (not changed)
 
 `data/pilot.jsonl` is a verbatim port of the transcripts in pilot.md that the pilot models

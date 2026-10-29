@@ -50,7 +50,10 @@ use the same file without `--scenarios`. For a real run, fill in the model names
    Each item type allows only some labels (`ALLOWED_LABELS` in `judge/rubric.py`: a one-off can
    be correct, promoted or widened; a preference correct, hardened or lost; a request correct or
    request_promoted; a hard rule correct, softened or lost; a changed value correct, stale or
-   lost), and the rubric gives an order of precedence when several apply. Each quote must
+   lost), and the rubric gives an order of precedence when several apply. A changed value whose
+   old value still stands as current anywhere in that text (for example verbatim in a pinned or
+   extracted constraint list) is `stale` unless some place says it was replaced, even if the new
+   value appears too (`STALE_RULE` in `judge/rubric.py`, with a worked example in LABEL_GUIDE.md). Each quote must
    appear in that text (ignoring case and whitespace). A judge whose quotes do not, or who gives
    a label the item's type does not allow, is asked once to fix both; quotes still missing are
    flagged (`quote_flagged`) and labels still not allowed are kept but flagged (`type_flagged`).
@@ -66,7 +69,9 @@ use the same file without `--scenarios`. For a real run, fill in the model names
    as a refusal (Anthropic `refusal`, OpenAI-compatible `content_filter`; cached like any
    answer, while compaction and judge calls still reject an empty reply), `text` when the last
    reply declines in words (a narrow phrase match in `probe/check.py`). Options: `--max-steps N` agent replies per probe,
-   `--no-full` to skip the baseline (long histories make it the most expensive part).
+   `--no-full` to skip the baseline (long histories make it the most expensive part), and
+   `--no-batch`, accepted as by `ib compact` and `ib judge` (each agent step depends on the reply
+   before it, so `ib probe` always makes single calls).
 5. **analyze** writes inflation rates by type, constraint precision and recall,
    behavioural inflation rates (all with 95% bootstrap intervals that resample one-off
    templates, so the three scenarios built from a template are drawn together),
@@ -80,7 +85,12 @@ use the same file without `--scenarios`. For a real run, fill in the model names
    bootstrap interval. The behaviour regression uses `full` as its reference condition.
    Flagged labels (quote or type) count in every main table; a robustness check without
    them is written next to them (`inflation_rates_unflagged.csv`,
-   `precision_recall_unflagged.csv`, `robustness_unflagged` in `summary.json`). Options: `--judge NAME`,
+   `precision_recall_unflagged.csv`, `robustness_unflagged` in `summary.json`). A second one keeps
+   only the items on which the two main judges agreed, leaving out every tie-broken item, and only
+   the invented rules both listed (`inflation_rates_judges_agree.csv`,
+   `precision_recall_judges_agree.csv`, `robustness_judges_agree` in `summary.json`, with the
+   numbers of items and invented rules left out; the main judges come from `judge.json`).
+   Options: `--judge NAME`,
    `--n-boot N`, `--no-figures`.
 
 Each stage logs its model calls (`calls.jsonl`, `judge_calls.jsonl`, `probe_calls.jsonl`)
@@ -244,7 +254,20 @@ The same `--seed` always gives the same scenarios. Each scenario records the one
 - **Neutral turns.** Each history has 3 to 6 user turns that set no rule and ask for no task
   (questions, thanks, clarifications), each answered by the assistant, so planted items are
   not the only things the user says. `validate` rejects any user turn without a planted item
-  that uses a rule or scope marker.
+  that uses a rule or scope marker. Each answer is a fact the rest of the history agrees with
+  (the Flask version is the one `pip show flask` prints), never a judgement the assistant has
+  not checked.
+- **Padding.** Tool output between exchanges shows one fixed world per domain (a codebase, a
+  cluster, a warehouse, an office, a set of drafts; `generate/domains/*.py`), so it is
+  consistent: a command prints the same output whenever it runs, `cat`, `grep`, `git show` and
+  `pytest` describe the same functions, and overlapping log windows print the same lines. It
+  shows no problems (failures, warnings, nearly full disks) and nothing that contradicts a
+  planted item (no pods for services whose replicas the items set, no calendar events at the
+  team sync's times). `validate` rejects padding that reports a problem or uses rule language,
+  a command that prints two different outputs, a package shown at two versions or named by the
+  assistant at another version, a diff that removes a definition still used elsewhere, and any
+  assistant message that corrects itself or judges without checking ("actually", "harmless",
+  "probably"); see SCENARIO_CHECK.md, "Padding consistency".
 
 The held-out set uses its own base seed (1000 unless `--seed` is given) and ids prefixed
 `heldout-`, so it never repeats a main-set scenario. It holds 8 scenarios per domain from 8

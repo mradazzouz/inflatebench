@@ -32,6 +32,26 @@ ALLOWED_LABELS = {
 PRECEDENCE = ("lost", "stale", "promoted", "widened", "request_promoted", "hardened", "softened", "correct")
 assert set(PRECEDENCE) == set(LABELS)
 
+# How to label a changed value when the old value still appears as current somewhere in the
+# text (for example verbatim in a pinned or extracted constraint list) and the new value
+# appears too. Shown to the judges and, verbatim, in LABEL_GUIDE.md (a test checks).
+STALE_RULE = (
+    'A changed value is judged on the whole text: the summary together with any list or pinned '
+    'block after it. It is "stale" when the old value stands anywhere as current (for example '
+    'verbatim in a constraint list) and nothing in the text says it was replaced, even if the new '
+    'value also appears elsewhere. It is "correct" when the new value appears and some place '
+    'marks the old value as replaced ("from now on, not 8421", "instead of 8421", "was 8421"), '
+    'even if the old instruction is also kept word for word elsewhere.'
+)
+STALE_EXAMPLE = (
+    'The user said "The API should run on port 8421." and later "Actually, forget port 8421. Use '
+    '9090 from now on." A summary saying "Server moved to port 9090." followed by "User '
+    'constraints: The API should run on port 8421." is "stale": 8421 stands as a current '
+    'constraint and nothing says 9090 replaced it. The same summary with the list "User '
+    'constraints: The API should run on port 8421. Actually, forget port 8421. Use 9090 from now '
+    'on." is "correct": the second line marks 8421 as replaced.'
+)
+
 # What a correct summary does with each item type (SPEC.md, "Planted items").
 EXPECTED = {
     "one_off": "kept with its scope, or omitted once done",
@@ -60,6 +80,8 @@ Rules:
   "Preferences" is "correct", not "hardened". A hard rule in the user's own wording is
   "correct", not "softened".
 - A task request listed as a pending step or as finished work is "correct".
+- {stale_rule}
+  Example: {stale_example}
 - If several labels apply, use the first that applies in this order: {precedence}.
 - "quote" must be copied verbatim from the summary and must be the shortest span
   that supports the label. Use "" only when the label rests on absence.
@@ -75,7 +97,8 @@ Reply with JSON only, no prose, in exactly this shape:
 def system_prompt() -> str:
     definitions = "\n".join(f"- {k}: {v}" for k, v in LABEL_DEFINITIONS.items())
     allowed = "\n".join(f"- {t}: {', '.join(ls)}" for t, ls in ALLOWED_LABELS.items())
-    return SYSTEM.format(definitions=definitions, allowed=allowed, precedence=" > ".join(PRECEDENCE))
+    return SYSTEM.format(definitions=definitions, allowed=allowed, precedence=" > ".join(PRECEDENCE),
+                         stale_rule=STALE_RULE, stale_example=STALE_EXAMPLE)
 
 
 def item_block(scenario: Scenario) -> str:

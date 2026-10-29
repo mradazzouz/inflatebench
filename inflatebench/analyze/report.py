@@ -91,8 +91,13 @@ def _records(df: pd.DataFrame) -> list[dict[str, Any]]:
 
 def analyze(labels: Iterable[Label], scenarios: Iterable[Scenario],
             probes: Iterable[ProbeResult] | None, out_dir: str | Path, judge: str = FINAL,
-            n_boot: int = 2000, seed: int = 0, figures: bool = True) -> dict[str, Any]:
-    """Write CSV tables, regression tables, figures and summary.json; return the summary."""
+            n_boot: int = 2000, seed: int = 0, figures: bool = True,
+            judge_roles: dict[str, str] | None = None) -> dict[str, Any]:
+    """Write CSV tables, regression tables, figures and summary.json; return the summary.
+
+    judge_roles ({judge name: role}, from judge.json) names the panel's two main judges for the
+    judges-agree robustness check; without it they are inferred from the labels.
+    """
     out = Path(out_dir)
     (out / "figures").mkdir(parents=True, exist_ok=True)
     scenarios, labels = list(scenarios), list(labels)
@@ -126,6 +131,24 @@ def analyze(labels: Iterable[Label], scenarios: Iterable[Scenario],
                                        "n_items": len(items_kept),
                                        "inflation_rates": _records(rates_kept),
                                        "precision_recall": _records(pr_kept)}
+    # Robustness check: only items on which the two main judges agreed (no tie-broken item), and
+    # only invented rules both listed.
+    pair = m.main_judges(labels, judge_roles)
+    if pair is None:
+        summary["robustness_judges_agree"] = {"note": "skipped: labels from two main judges are needed"}
+    else:
+        agreed, items_out, invented_out = m.judges_agree(labels, judge, *pair)
+        items_agreed = m.item_frame(agreed, scenarios, judge)
+        rates_agreed = inflation_rates(items_agreed, n_boot, seed)
+        pr_agreed = precision_recall(items_agreed, m.invented_frame(agreed, judge), n_boot, seed)
+        rates_agreed.to_csv(out / "inflation_rates_judges_agree.csv", index=False)
+        pr_agreed.to_csv(out / "precision_recall_judges_agree.csv", index=False)
+        summary["robustness_judges_agree"] = {"main_judges": list(pair),
+                                              "excluded_items": items_out,
+                                              "excluded_invented": invented_out,
+                                              "n_items": len(items_agreed),
+                                              "inflation_rates": _records(rates_agreed),
+                                              "precision_recall": _records(pr_agreed)}
     beh = None
     if probe_df is not None and len(probe_df):
         beh = behaviour_rates(probe_df, n_boot, seed)
@@ -208,6 +231,9 @@ def analyze_run(run_dir: str | Path, scenarios_path: str | Path, **kw: Any) -> d
     probes = list(read_jsonl(probes_path, ProbeResult)) if probes_path.exists() else None
     labels = list(read_jsonl(run_dir / "labels.jsonl", Label))
     scenarios = list(read_jsonl(scenarios_path, Scenario))
+    if (run_dir / "judge.json").exists() and "judge_roles" not in kw:
+        info = json.loads((run_dir / "judge.json").read_text(encoding="utf-8"))
+        kw["judge_roles"] = {j["name"]: j["role"] for j in info.get("judges", [])}
     if (run_dir / "summaries.jsonl").exists():
         # The panel's final labels cover every item; a single judge's (--judge) may not.
         check_coverage(read_jsonl(run_dir / "summaries.jsonl", Summary), scenarios, labels, probes)
