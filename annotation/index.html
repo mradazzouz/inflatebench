@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inflation Labelling</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #fcfcfb; --panel: #ffffff; --ink: #0b0b0b; --ink-2: #52514e; --line: #e4e3df;
+  --accent: #2a78d6; --accent-ink: #ffffff; --chosen: #e8f1fc; --warn: #b54708;
+  --mark: #fff1b8;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #1a1a19; --panel: #232322; --ink: #f0efec; --ink-2: #c3c2b7; --line: #3a3a38;
+    --accent: #3987e5; --accent-ink: #0b0b0b; --chosen: #1f3550; --warn: #f5a35c; --mark: #5a4a12;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1a1a19; --panel: #232322; --ink: #f0efec; --ink-2: #c3c2b7; --line: #3a3a38;
+  --accent: #3987e5; --accent-ink: #0b0b0b; --chosen: #1f3550; --warn: #f5a35c; --mark: #5a4a12;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+       font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center;
+         padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+header h1 { font-size: 16px; margin: 0 auto 0 0; }
+main { max-width: 1100px; margin: 0 auto; padding: 16px; display: grid; gap: 16px;
+       grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); align-items: start; }
+@media (max-width: 760px) { main { grid-template-columns: minmax(0, 1fr); } }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; min-width: 0; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2); margin: 0 0 8px; }
+#summary { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: inherit; }
+#summary::selection { background: var(--mark); }
+.item-text { font-size: 17px; font-weight: 600; margin: 4px 0; overflow-wrap: anywhere; }
+.meta { color: var(--ink-2); font-size: 13px; }
+.labels { display: grid; gap: 6px; margin: 12px 0; }
+.labels button { display: grid; grid-template-columns: 22px 1fr; gap: 2px 8px; text-align: left;
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
+  color: var(--ink); font: inherit; cursor: pointer; }
+.labels button:hover { border-color: var(--accent); }
+.labels button[aria-pressed="true"] { background: var(--chosen); border-color: var(--accent); }
+.labels .key { grid-row: span 2; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.labels .name { font-weight: 600; }
+.labels .def { font-size: 12.5px; color: var(--ink-2); }
+textarea, input[type=text] { width: 100%; font: inherit; color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+button.btn, label.btn { font: inherit; padding: 6px 12px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+button:disabled { opacity: .5; cursor: default; }
+label.btn input { display: none; }
+.nav { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+.progress { font-variant-numeric: tabular-nums; color: var(--ink-2); }
+details { margin-top: 12px; }
+summary { cursor: pointer; color: var(--ink-2); }
+.turn { margin: 6px 0; padding: 6px 8px; border-left: 3px solid var(--line); white-space: pre-wrap;
+        overflow-wrap: anywhere; font-size: 13.5px; }
+.turn b { color: var(--ink-2); font-weight: 600; text-transform: capitalize; }
+#status { color: var(--warn); font-size: 13px; min-height: 1.5em; }
+#empty { grid-column: 1 / -1; }
+kbd { font: 12px ui-monospace, monospace; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Constraint inflation: human labels</h1>
+  <input type="text" id="annotator" placeholder="Your name" style="width:160px" aria-label="Annotator name">
+  <label class="btn">Load sample<input type="file" id="sampleFile" accept=".jsonl,.json,.txt"></label>
+  <label class="btn">Resume labels<input type="file" id="labelsFile" accept=".jsonl,.json,.txt"></label>
+  <button class="btn primary" id="save" disabled>Save labels (.jsonl)</button>
+</header>
+<main>
+  <section id="empty">
+    <h2>How to use</h2>
+    <p>Enter your name, then load the sample JSONL (one summary item per line, made by
+    <code>make_annotation_sample</code>). For each item, read the summary, pick one label,
+    and select the summary text that supports it (the selection fills the quote box).
+    Leave the quote empty when the label rests on absence.</p>
+    <p>Keys: <kbd>1</kbd>–<kbd>8</kbd> label, <kbd>→</kbd>/<kbd>←</kbd> next/previous,
+    <kbd>n</kbd> next unlabelled. Labels are kept in this browser as you go; use
+    <b>Save labels</b> to write the JSONL file. Everything runs offline.</p>
+    <p class="meta">You see neither the compaction condition nor the model; label from the text alone.</p>
+  </section>
+  <section id="left" hidden>
+    <h2>Summary</h2>
+    <pre id="summary"></pre>
+    <details id="historyBox">
+      <summary>Original conversation</summary>
+      <div id="history"></div>
+    </details>
+  </section>
+  <section id="right" hidden>
+    <h2>Planted item</h2>
+    <div class="meta" id="itemType"></div>
+    <div class="item-text" id="itemText"></div>
+    <div class="meta" id="itemScope"></div>
+    <div class="labels" id="labels" role="group" aria-label="Label"></div>
+    <label class="meta" for="quote">Supporting quote from the summary</label>
+    <textarea id="quote" rows="3"></textarea>
+    <div class="nav">
+      <button class="btn" id="prev">← Prev</button>
+      <button class="btn" id="next">Next →</button>
+      <button class="btn" id="nextOpen">Next unlabelled</button>
+      <span class="progress" id="progress"></span>
+    </div>
+    <div id="status" role="status"></div>
+  </section>
+</main>
+<script>
+"use strict";
+// Keep in sync with inflatebench/judge/rubric.py (a test checks this).
+const LABELS = [
+  ["correct", "Kept with the right scope and strength, or correctly omitted once done."],
+  ["lost", "A still-active rule or preference is missing from the summary."],
+  ["promoted", "A one-off (scoped to one file, run, item, section or date) appears as a standing rule."],
+  ["hardened", "A soft preference appears as a requirement."],
+  ["softened", "A hard standing rule appears as a preference or optional."],
+  ["widened", "A scoped rule appears with a broader scope than the user gave it."],
+  ["request_promoted", "A one-time task request appears as a standing rule rather than as progress."],
+  ["stale", "An old, replaced value appears as current."],
+];
+const TYPE_NAMES = {
+  one_off: "One-off instruction: correct if kept with its scope, or omitted once done",
+  preference: "Soft preference: correct if kept as a preference",
+  request: "Task request: correct if recorded as progress, not as a rule",
+  hard_rule: "Hard standing rule: correct if kept as strict",
+  changed_value: "Changed value: correct if only the new value is current",
+};
+
+const $ = (id) => document.getElementById(id);
+const state = { rows: [], labels: {}, pos: 0, sampleName: "" };
+
+function store(fn) { try { return fn(window.localStorage); } catch (e) { return null; } }
+function storageKey() { return "ib-labels:" + state.sampleName + ":" + $("annotator").value.trim(); }
+function persist() {
+  store((s) => s.setItem(storageKey(), JSON.stringify({ labels: state.labels, pos: state.pos })));
+  store((s) => s.setItem("ib-annotator", $("annotator").value.trim()));
+}
+function restore() {
+  const saved = store((s) => s.getItem(storageKey()));
+  if (!saved) return;
+  try {
+    const data = JSON.parse(saved);
+    state.labels = data.labels || {};
+    state.pos = Math.min(data.pos || 0, state.rows.length - 1);
+  } catch (e) { /* ignore corrupt entry */ }
+}
+
+function parseJsonl(text) {
+  const out = [];
+  text.split(/\r?\n/).forEach((line, k) => {
+    if (!line.trim()) return;
+    try { out.push(JSON.parse(line)); }
+    catch (e) { throw new Error("line " + (k + 1) + " is not valid JSON"); }
+  });
+  return out;
+}
+
+function status(msg) { $("status").textContent = msg || ""; }
+
+function buildLabelButtons() {
+  LABELS.forEach(([name, def], k) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.dataset.label = name;
+    b.setAttribute("aria-pressed", "false");
+    const key = document.createElement("span"); key.className = "key"; key.textContent = k + 1;
+    const n = document.createElement("span"); n.className = "name"; n.textContent = name.replace("_", " ");
+    const d = document.createElement("span"); d.className = "def"; d.textContent = def;
+    b.append(key, n, d);
+    b.addEventListener("click", () => choose(name));
+    $("labels").append(b);
+  });
+}
+
+function current() { return state.rows[state.pos]; }
+
+function render() {
+  const has = state.rows.length > 0;
+  $("empty").hidden = has; $("left").hidden = !has; $("right").hidden = !has;
+  $("save").disabled = Object.keys(state.labels).length === 0;
+  if (!has) return;
+  const row = current();
+  $("summary").textContent = row.summary || "";
+  $("itemType").textContent = TYPE_NAMES[row.item_type] || row.item_type || "";
+  $("itemText").textContent = "“" + (row.item_text || "") + "”";
+  $("itemScope").textContent = row.item_scope ? "Scope: " + row.item_scope : "";
+  const hist = $("history");
+  hist.replaceChildren();
+  (row.history || []).forEach((m) => {
+    const div = document.createElement("div"); div.className = "turn";
+    const who = document.createElement("b"); who.textContent = m.role + ": ";
+    div.append(who, document.createTextNode(m.content));
+    hist.append(div);
+  });
+  $("historyBox").hidden = !(row.history && row.history.length);
+  const lab = state.labels[row.uid];
+  document.querySelectorAll("#labels button").forEach((b) =>
+    b.setAttribute("aria-pressed", String(!!lab && b.dataset.label === lab.label)));
+  $("quote").value = lab ? lab.quote : "";
+  const done = state.rows.filter((r) => state.labels[r.uid]).length;
+  $("progress").textContent = (state.pos + 1) + " / " + state.rows.length + " · " + done + " labelled";
+  $("prev").disabled = state.pos === 0;
+  $("next").disabled = state.pos === state.rows.length - 1;
+}
+
+function requireName() {
+  if ($("annotator").value.trim()) return true;
+  status("Enter your name first, so the labels can be attributed.");
+  $("annotator").focus();
+  return false;
+}
+
+function choose(label) {
+  if (!requireName()) return;
+  const row = current();
+  state.labels[row.uid] = { label, quote: $("quote").value.trim(), time: new Date().toISOString() };
+  status("");
+  persist();
+  render();
+}
+
+function go(pos) {
+  if (!state.rows.length) return;
+  state.pos = Math.max(0, Math.min(state.rows.length - 1, pos));
+  persist();
+  render();
+  window.scrollTo(0, 0);
+}
+
+function nextOpen() {
+  const n = state.rows.length;
+  for (let k = 1; k <= n; k++) {
+    const p = (state.pos + k) % n;
+    if (!state.labels[state.rows[p].uid]) return go(p);
+  }
+  status("Every item is labelled. Save the file.");
+}
+
+function save() {
+  if (!requireName()) return;
+  const annotator = $("annotator").value.trim();
+  const lines = state.rows.filter((r) => state.labels[r.uid]).map((r) => {
+    const l = state.labels[r.uid];
+    return JSON.stringify({ uid: r.uid, annotator, label: l.label, quote: l.quote, time: l.time });
+  });
+  const blob = new Blob([lines.join("\n") + "\n"], { type: "application/jsonl" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  const base = state.sampleName.replace(/\.[^.]+$/, "") || "sample";
+  a.download = base + ".labels." + annotator.replace(/[^\w-]+/g, "_") + ".jsonl";
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  status("Saved " + lines.length + " labels.");
+}
+
+async function loadSample(file) {
+  try {
+    const rows = parseJsonl(await file.text());
+    const bad = rows.findIndex((r) => !r.uid || !("summary" in r) || !r.item_id);
+    if (bad >= 0) throw new Error("row " + (bad + 1) + " lacks uid, item_id or summary");
+    state.rows = rows; state.labels = {}; state.pos = 0; state.sampleName = file.name;
+    restore();
+    status("");
+    render();
+  } catch (e) { status("Could not load sample: " + e.message); }
+}
+
+async function loadLabels(file) {
+  if (!state.rows.length) return status("Load the sample first.");
+  try {
+    const uids = new Set(state.rows.map((r) => r.uid));
+    let n = 0;
+    for (const r of parseJsonl(await file.text())) {
+      if (!uids.has(r.uid) || !LABELS.some(([name]) => name === r.label)) continue;
+      state.labels[r.uid] = { label: r.label, quote: r.quote || "", time: r.time || "" };
+      if (r.annotator && !$("annotator").value.trim()) $("annotator").value = r.annotator;
+      n++;
+    }
+    persist();
+    status("Resumed " + n + " labels.");
+    render();
+  } catch (e) { status("Could not load labels: " + e.message); }
+}
+
+$("sampleFile").addEventListener("change", (e) => e.target.files[0] && loadSample(e.target.files[0]));
+$("labelsFile").addEventListener("change", (e) => e.target.files[0] && loadLabels(e.target.files[0]));
+$("save").addEventListener("click", save);
+$("prev").addEventListener("click", () => go(state.pos - 1));
+$("next").addEventListener("click", () => go(state.pos + 1));
+$("nextOpen").addEventListener("click", nextOpen);
+$("annotator").addEventListener("change", () => { if (state.rows.length) { restore(); render(); } persist(); });
+$("quote").addEventListener("input", () => {
+  const lab = state.rows.length && state.labels[current().uid];
+  if (lab) { lab.quote = $("quote").value.trim(); persist(); }
+});
+// Selecting text in the summary fills the quote box.
+$("summary").addEventListener("mouseup", () => {
+  const sel = String(window.getSelection() || "").trim();
+  if (!sel) return;
+  $("quote").value = sel;
+  $("quote").dispatchEvent(new Event("input"));
+});
+document.addEventListener("keydown", (e) => {
+  const tag = (e.target.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea" || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (!state.rows.length) return;
+  const k = parseInt(e.key, 10);
+  if (k >= 1 && k <= LABELS.length) { choose(LABELS[k - 1][0]); e.preventDefault(); }
+  else if (e.key === "ArrowRight") go(state.pos + 1);
+  else if (e.key === "ArrowLeft") go(state.pos - 1);
+  else if (e.key === "n") nextOpen();
+});
+window.addEventListener("beforeunload", persist);
+
+buildLabelButtons();
+$("annotator").value = store((s) => s.getItem("ib-annotator")) || "";
+render();
+</script>
+</body>
+</html>

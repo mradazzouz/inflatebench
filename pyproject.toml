@@ -8,7 +8,13 @@ version = "0.0.1"
 description = "Benchmark for constraint inflation in context compaction"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["pyyaml>=6"]
+dependencies = [
+    "pyyaml>=6",
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "statsmodels>=0.14",
+    "matplotlib>=3.8",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
