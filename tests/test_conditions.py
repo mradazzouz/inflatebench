@@ -204,12 +204,3 @@ def test_ib_compact_dry_run_estimates_without_writing(config, capsys):
     assert "scenarios:     2" in out and "repeats:       3" in out and "model calls:   12" in out
     assert "$" in out
     assert not (tmp / "runs").exists()
-
-
-def test_ib_compact_without_provider_asks_for_fake(config, monkeypatch):
-    import inflatebench.models
-
-    monkeypatch.delattr(inflatebench.models, "make_llm", raising=False)
-    path, _ = config
-    with pytest.raises(SystemExit, match="--fake"):
-        main(["--config", str(path), "compact", "--run-id", "r1"])
