@@ -20,6 +20,36 @@ def _stub(args: argparse.Namespace) -> int:
     return 1
 
 
+def _compact(args: argparse.Namespace) -> int:
+    if not args.dry_run:
+        return _stub(args)
+    from inflatebench.models.estimate import estimate
+    from inflatebench.models.pricing import Prices
+    from inflatebench.schema import Scenario, read_jsonl
+
+    cfg = load_config(args.config)
+    key = args.model or "main"
+    models = cfg.get("models") or {}
+    if key not in models:
+        print(f"ib compact: no model {key!r} in config; have {sorted(models)}", file=sys.stderr)
+        return 2
+    path = Path(args.scenarios or (cfg.get("paths") or {}).get("scenarios", "data/scenarios.jsonl"))
+    if not path.exists():
+        print(f"ib compact: {path} not found; run ib generate or pass --scenarios", file=sys.stderr)
+        return 2
+    est = estimate(
+        list(read_jsonl(path, Scenario)),
+        models[key],
+        args.condition or cfg.get("conditions") or [],
+        cfg.get("repeats", 1),
+        Prices(cfg.get("prices")),
+        output_tokens=args.output_tokens,
+    )
+    print(f"ib compact --dry-run ({key}, {path})")
+    print("\n".join("  " + line for line in est.lines()))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ib", description="Constraint inflation benchmark")
     parser.add_argument("--config", default="config.yaml", help="path to config.yaml")
@@ -33,7 +63,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--run-id", required=True)
     p.add_argument("--condition", action="append", help="condition name; repeatable")
     p.add_argument("--model", default=None, help="model key from config")
-    p.add_argument("--dry-run", action="store_true", help="estimate cost without calling models")
+    p.add_argument("--dry-run", action="store_true", help="estimate tokens and cost without calling models")
+    p.add_argument("--scenarios", default=None, help="scenarios JSONL (default from config)")
+    p.add_argument("--output-tokens", type=int, default=1000, help="assumed output tokens per call (dry run)")
 
     p = sub.add_parser("judge", help="write runs/<run_id>/labels.jsonl")
     p.add_argument("--run-id", required=True)
@@ -46,6 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     for name in ("generate", "compact", "judge", "probe", "analyze"):
         sub.choices[name].set_defaults(func=_stub)
+    sub.choices["compact"].set_defaults(func=_compact)
     return parser
 
 
