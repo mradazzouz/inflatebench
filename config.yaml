@@ -1,4 +1,7 @@
 # Model names live here, never in code. Fill in the provider model ids before a run.
+# API keys are read only from environment variables: ANTHROPIC_API_KEY for anthropic,
+# and the variable named by api_key_env for openai_compatible (none needed for Ollama).
+# Optional per model: max_tokens, prompt_cache (anthropic, default true), cache_ttl (5m | 1h).
 models:
   main:          # cheap hosted model, run through the Batch API
     provider: anthropic
@@ -18,7 +21,10 @@ judges:          # two families score every summary; the third breaks ties
   - CHANGE_ME
 tiebreak: CHANGE_ME
 
-# USD per million tokens, keyed by model name; used by `ib compact --dry-run`.
+# USD per million tokens, keyed by model name; used for per-call cost logging and by
+# `ib compact --dry-run`. cache_write and cache_read default to 1.25x and 0.1x input,
+# batch_discount to 0.5. Models without an entry (e.g. local Ollama) cost 0.
+#   some-model-id: {input: 1.00, output: 5.00, cache_read: 0.10}
 prices: {}
 
 conditions: [free, sectioned, keep_rules, extractor, pinning]

@@ -278,9 +278,9 @@ def test_cli_generate_with_fake_paraphrase_model(tmp_path):
     assert list((tmp_path / "cache").rglob("*.json"))  # paraphrase calls went through the disk cache
 
 
-def test_cli_generate_rejects_unavailable_provider(tmp_path):
+def test_cli_generate_rejects_unconfigured_model(tmp_path):
     cfg = tmp_path / "config.yaml"
-    cfg.write_text("models:\n  main: {provider: anthropic, name: x}\n")
+    cfg.write_text("models:\n  main: {provider: anthropic, name: CHANGE_ME}\n")
     with pytest.raises(SystemExit):
         main(["--config", str(cfg), "generate", "--n", "5", "--paraphrase-model", "main",
               "--out", str(tmp_path / "s.jsonl")])

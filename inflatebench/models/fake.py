@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from inflatebench.models import BatchHandle, Completion, Request
+from inflatebench.models import BatchError, BatchHandle, Completion, Request
 from inflatebench.schema import Message
 
 Responder = Callable[[list[Message]], str]
@@ -13,11 +13,16 @@ Responder = Callable[[list[Message]], str]
 class FakeLLM:
     """Replies from a list of canned texts (cycled) or a function of the messages."""
 
+    supports_batch = True
+
     def __init__(self, responses: list[str] | Responder | None = None, model: str = "fake") -> None:
         self.responses = responses if responses is not None else ["ok"]
         self.model = model
         self.calls: list[list[Message]] = []
-        self.batches: dict[str, list[Completion]] = {}
+        self.batches: dict[str, dict[str, Completion | BatchError]] = {}
+
+    def settings(self) -> dict[str, Any]:
+        return {"provider": "fake", "model": self.model}
 
     def _text(self, messages: list[Message]) -> str:
         if callable(self.responses):
@@ -36,8 +41,11 @@ class FakeLLM:
 
     def submit_batch(self, requests: list[Request]) -> BatchHandle:
         handle = BatchHandle(id=f"fake-batch-{len(self.batches)}", size=len(requests))
-        self.batches[handle.id] = [self.complete(r.messages, **r.params) for r in requests]
+        self.batches[handle.id] = {r.key(): self.complete(r.messages, **r.params) for r in requests}
         return handle
 
-    def batch_results(self, handle: BatchHandle) -> list[Completion]:
+    def batch_done(self, handle: BatchHandle) -> bool:
+        return True
+
+    def batch_results(self, handle: BatchHandle) -> dict[str, Completion | BatchError]:
         return self.batches[handle.id]

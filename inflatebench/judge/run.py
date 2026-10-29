@@ -1,0 +1,85 @@
+"""Stage 3: judge every summary of a run -> runs/<run_id>/labels.jsonl."""
+
+from __future__ import annotations
+
+import json
+import random
+from pathlib import Path
+from typing import Any, Iterable
+
+from inflatebench.judge.judges import PanelJudge
+from inflatebench.schema import Label, Scenario, Summary, read_jsonl, write_jsonl
+
+
+def judge_summaries(panel: PanelJudge, scenarios: Iterable[Scenario],
+                    summaries: Iterable[Summary]) -> list[Label]:
+    by_id = {s.id: s for s in scenarios}
+    out: list[Label] = []
+    for summary in summaries:
+        out += panel.label(by_id[summary.scenario_id], summary)
+    return out
+
+
+def judge_run(panel: PanelJudge, scenarios_path: str | Path, run_dir: str | Path) -> Path:
+    run_dir = Path(run_dir)
+    labels = judge_summaries(panel, read_jsonl(scenarios_path, Scenario),
+                             read_jsonl(run_dir / "summaries.jsonl", Summary))
+    out = run_dir / "labels.jsonl"
+    write_jsonl(out, labels)
+    return out
+
+
+def make_annotation_sample(scenarios: Iterable[Scenario], summaries: Iterable[Summary],
+                           n: int = 200, seed: int = 0,
+                           include_history: bool = True) -> tuple[list[dict], list[dict]]:
+    """Randomly sample n (summary, item) pairs for human labelling, blind to condition.
+
+    Returns (sample, key): the sample rows go to the annotation page and carry only an
+    opaque uid; the key rows map each uid back to condition, model and repeat.
+    """
+    by_id = {s.id: s for s in scenarios}
+    pool = [(summ, item) for summ in summaries for item in by_id[summ.scenario_id].items]
+    rng = random.Random(seed)
+    picked = rng.sample(pool, min(n, len(pool)))
+    sample, key = [], []
+    for k, (summ, item) in enumerate(picked):
+        uid = f"u{k:04d}"
+        scen = by_id[summ.scenario_id]
+        row: dict[str, Any] = {"uid": uid, "scenario_id": scen.id, "item_id": item.id,
+                               "item_type": item.type, "item_text": item.text,
+                               "item_scope": item.scope, "summary": summ.text}
+        if include_history:
+            row["history"] = [m.to_dict() for m in scen.history]
+        sample.append(row)
+        key.append({"uid": uid, "scenario_id": scen.id, "condition": summ.condition,
+                    "model": summ.model, "repeat": summ.repeat, "item_id": item.id})
+    return sample, key
+
+
+def write_rows(path: str | Path, rows: Iterable[dict]) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        for r in rows:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+
+def read_rows(path: str | Path) -> list[dict]:
+    with Path(path).open(encoding="utf-8") as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
+def read_human_labels(labels_path: str | Path, key_path: str | Path) -> list[Label]:
+    """Join labels saved by annotation/index.html with the sample key into Label records.
+
+    Each saved row has uid, annotator, label and quote; judge becomes "human:<annotator>".
+    """
+    key = {r["uid"]: r for r in read_rows(key_path)}
+    out = []
+    for row in read_rows(labels_path):
+        k = key[row["uid"]]
+        out.append(Label(scenario_id=k["scenario_id"], condition=k["condition"],
+                         model=k["model"], repeat=k["repeat"],
+                         judge=f"human:{row['annotator']}", item_id=k["item_id"],
+                         label=row["label"], quote=row.get("quote", "")))
+    return out
