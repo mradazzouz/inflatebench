@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from inflatebench.generate.banks import Domain, Phrase, count_key, cue_ok
 from inflatebench.generate.domains import DOMAINS
@@ -136,7 +136,7 @@ def _assemble(domain: Domain, index: int, seed: int, rng: random.Random, para: P
     return Scenario(
         id=f"{domain.name}-{index:03d}", domain=domain.name, seed=seed, length=length, cue=cue,
         items=items, history=history, next_task=one_off.next_task,
-        probe=Probe(tool=one_off.probe_tool, inflated_if=dict(one_off.inflated_if)),
+        probe=Probe(tool=one_off.probe_tool, inflated_if=dict(one_off.inflated_if)), position=pos,
     )
 
 
@@ -179,3 +179,26 @@ def generate(n: int = 240, seed: int = 0, paraphraser: Paraphraser | None = None
             raise ValueError("at most 1000 scenarios per domain (seeds are base_seed * 1000 + index)")
         out += [build_scenario(name, i, seed, para) for i in range(count)]
     return out
+
+
+HELDOUT_SIZE = 40
+HELDOUT_SEED = 1000  # base seed of the held-out set, apart from the main set's usual small seeds
+
+
+def heldout_indices() -> list[tuple[str, int]]:
+    """(domain, index) for the 40 held-out scenarios: 8 per domain, each of a domain's one-offs
+    once, cue 20/20 overall and 4/4 per domain, and lengths and positions 13 or 14 each."""
+    out = []
+    for d, name in enumerate(DOMAINS):
+        for k in range(PER_DOMAIN // 6):  # one per one-off
+            g = d * 8 + k
+            block = g % 3 + 3 * (g % 2)  # length from g % 3, cue from g % 2 (see factors)
+            out.append((name, block * 8 + k))
+    return out
+
+
+def generate_heldout(seed: int = HELDOUT_SEED, paraphraser: Paraphraser | None = None) -> list[Scenario]:
+    """The private held-out set; ids are prefixed "heldout-" so they never clash with the main set."""
+    para = paraphraser or Paraphraser()
+    return [replace(s, id=f"heldout-{s.id}")
+            for s in (build_scenario(name, i, seed, para) for name, i in heldout_indices())]

@@ -7,6 +7,7 @@ import random
 from pathlib import Path
 from typing import Any, Iterable
 
+from inflatebench.conditions import neutral_context
 from inflatebench.judge.judges import PanelJudge
 from inflatebench.models import Deferred, Pending, run_phases
 from inflatebench.schema import Label, Scenario, Summary, read_jsonl, write_jsonl
@@ -44,6 +45,20 @@ def judge_run(panel: PanelJudge, scenarios_path: str | Path, run_dir: str | Path
     return out
 
 
+def quote_flag_rates(labels: Iterable[Label]) -> dict[str, dict[str, Any]]:
+    """Per judge: labels with a quote, how many of those quotes were flagged as not in the
+    summary after one re-ask, and the rate. Labels resting on absence (no quote) are left out."""
+    out: dict[str, dict[str, Any]] = {}
+    for lab in labels:
+        row = out.setdefault(lab.judge, {"quoted": 0, "flagged": 0})
+        if lab.quote:
+            row["quoted"] += 1
+            row["flagged"] += lab.quote_flagged
+    for row in out.values():
+        row["rate"] = row["flagged"] / row["quoted"] if row["quoted"] else 0.0
+    return dict(sorted(out.items()))
+
+
 def make_annotation_sample(scenarios: Iterable[Scenario], summaries: Iterable[Summary],
                            n: int = 200, seed: int = 0,
                            include_history: bool = True) -> tuple[list[dict], list[dict]]:
@@ -62,7 +77,7 @@ def make_annotation_sample(scenarios: Iterable[Scenario], summaries: Iterable[Su
         scen = by_id[summ.scenario_id]
         row: dict[str, Any] = {"uid": uid, "scenario_id": scen.id, "item_id": item.id,
                                "item_type": item.type, "item_text": item.text,
-                               "item_scope": item.scope, "summary": summ.text}
+                               "item_scope": item.scope, "summary": neutral_context(summ.messages)}
         if include_history:
             row["history"] = [m.to_dict() for m in scen.history]
         sample.append(row)

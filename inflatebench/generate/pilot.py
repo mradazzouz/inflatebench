@@ -14,6 +14,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from inflatebench.generate.validate import position
 from inflatebench.schema import Item, Message, Probe, Scenario
 
 ROLE = {"User": "user", "Assistant": "assistant", "Tool": "tool"}
@@ -123,6 +124,15 @@ PILOT: dict[str, P] = {
 }
 
 
+# Round-2 scenarios (A-E) leave scope to context, except B ("--force this time") and E ("For this
+# run, ..."), which state it outright. C's "the only slot they have" is not a scope word.
+EXPLICIT_ROUND_2 = ("B", "E")
+
+
+def cue_for(code: str) -> str:
+    return "explicit" if code.isdigit() or code in EXPLICIT_ROUND_2 else "implicit"
+
+
 def parse_pilot(md: str) -> dict[str, tuple[list[Message], str]]:
     """Map scenario code ("1".."20", "A".."E") to (history, next task)."""
     out = {}
@@ -170,11 +180,13 @@ def port_pilot(md: str) -> list[Scenario]:
                 scope = f"{scope} (turn {turn})"
             items.append(Item(id=id_, type=type_, text=_sentence(history[turn].content, key),
                               key=key, turn=turn, scope=scope))
-        scenarios.append(Scenario(
+        s = Scenario(
             id=f"pilot-{code.zfill(2) if code.isdigit() else code}", domain=domain, seed=n, length="short",
-            cue="explicit" if code.isdigit() else "implicit", items=items, history=history,
+            cue=cue_for(code), items=items, history=history,
             next_task=task, probe=Probe(tool=probe[0], inflated_if=probe[1]),
-        ))
+        )
+        s.position = position(s, "o1")
+        scenarios.append(s)
     return scenarios
 
 

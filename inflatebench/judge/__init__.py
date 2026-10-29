@@ -18,12 +18,19 @@ from inflatebench.judge.agreement import (  # noqa: E402
     human_check,
 )
 from inflatebench.judge.judges import FINAL, LLMJudge, PanelJudge  # noqa: E402
-from inflatebench.judge.parse import JudgeError, Verdict, parse_verdict, quote_in_summary  # noqa: E402
+from inflatebench.judge.parse import (  # noqa: E402
+    JudgeError,
+    Verdict,
+    parse_verdict,
+    quote_in_summary,
+    unquoted,
+)
 from inflatebench.judge.rubric import LABEL_DEFINITIONS, build_prompt  # noqa: E402
 from inflatebench.judge.run import (  # noqa: E402
     judge_run,
     judge_summaries,
     make_annotation_sample,
+    quote_flag_rates,
     read_human_labels,
 )
 
@@ -44,6 +51,8 @@ __all__ = [
     "judge_summaries",
     "make_annotation_sample",
     "parse_verdict",
+    "quote_flag_rates",
     "quote_in_summary",
     "read_human_labels",
+    "unquoted",
 ]

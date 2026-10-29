@@ -13,6 +13,7 @@ from inflatebench.analyze import metrics as m
 from inflatebench.analyze import plots
 from inflatebench.analyze.stats import mixed_logit, ratio_ci
 from inflatebench.judge.judges import FINAL
+from inflatebench.judge.run import quote_flag_rates
 from inflatebench.schema import Label, ProbeResult, Scenario, read_jsonl
 
 
@@ -40,7 +41,16 @@ def precision_recall(items: pd.DataFrame, invented: pd.DataFrame, n_boot: int = 
 
 
 def behaviour_rates(probes: pd.DataFrame, n_boot: int = 2000, seed: int = 0) -> pd.DataFrame:
-    return ratio_ci(m.behaviour_counts(probes), m.GROUP, n_boot, seed)
+    """Behavioural inflation over all probes (rate, lo, hi), how often the probe tool was called
+    (called_rate) and behavioural inflation among probes that called it (rate_when_called)."""
+    out = ratio_ci(m.behaviour_counts(probes), m.GROUP, n_boot, seed)
+    for counts, name in ((m.called_counts, "called"), (m.behaviour_when_called_counts, "when_called")):
+        t = ratio_ci(counts(probes), m.GROUP, n_boot, seed)
+        prefix = "called_rate" if name == "called" else "rate_when_called"
+        t = t.rename(columns={"rate": prefix, "lo": f"{prefix}_lo", "hi": f"{prefix}_hi",
+                              "num": f"{prefix}_num", "den": f"{prefix}_den"})
+        out = out.merge(t.drop(columns="scenarios"), on=m.GROUP, how="left")
+    return out
 
 
 def regressions(items: pd.DataFrame, probes: pd.DataFrame | None) -> dict[str, pd.DataFrame | str]:
@@ -83,6 +93,7 @@ def analyze(labels: Iterable[Label], scenarios: Iterable[Scenario],
     pr.to_csv(out / "precision_recall.csv", index=False)
     items.to_csv(out / "items.csv", index=False)
     summary: dict[str, Any] = {"judge": judge, "n_items": len(items),
+                               "quote_flags": quote_flag_rates(labels),
                                "n_scenarios": int(items["scenario_id"].nunique()),
                                "n_boot": n_boot, "seed": seed,
                                "inflation_rates": _records(rates),

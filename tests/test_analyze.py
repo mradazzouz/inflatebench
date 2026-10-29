@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -8,9 +9,10 @@ import pytest
 from conftest import INFLATE_P, synthetic_run
 from inflatebench.analyze import analyze, analyze_run, mixed_logit, ratio_ci
 from inflatebench.analyze import metrics as m
-from inflatebench.analyze.report import inflation_rates, precision_recall
+from inflatebench.analyze.report import behaviour_rates, inflation_rates, precision_recall
+from inflatebench.generate.validate import position
 from inflatebench.judge import FINAL
-from inflatebench.schema import INVENTED, Label, Scenario, read_jsonl, write_jsonl
+from inflatebench.schema import INVENTED, Label, ProbeResult, Scenario, read_jsonl, write_jsonl
 
 
 def labels_for(scenario, labels, condition="free", model="x", repeat=0, invented=0):
@@ -112,6 +114,36 @@ def test_mixed_logit_finds_condition_effect(pilot):
     assert res.set_index("term").loc["scenario_id", "effect"] == "random_log_sd"
     assert res.attrs["formula"].endswith("+ (1 | scenario_id)")
     assert "C(model)[T.m-b]" in coef and "C(cue, Treatment(reference='explicit'))[T.implicit]" in coef
+    assert "C(position, Treatment(reference='early'))[T.late]" in coef
+    assert "position" in res.attrs["formula"]
+
+
+def test_position_comes_from_the_scenario_or_its_history(pilot):
+    scenarios, labels, probes = synthetic_run(pilot, n_scenarios=18)
+    items = m.item_frame(labels, scenarios)
+    assert set(items["position"]) == {"early", "middle", "late"}
+    assert set(m.probe_frame(probes, scenarios)["position"]) == {"early", "middle", "late"}
+    # Files written before position was stored: computed from where the one-off sits.
+    old = m.item_frame(labels_for(pilot[0], {i.id: "correct" for i in pilot[0].items}), pilot)
+    assert set(old["position"]) == {position(pilot[0], "o1")}
+
+
+def test_behaviour_reports_probe_calls_and_rate_when_called():
+    def probe(sid, called, inflated):
+        return ProbeResult(sid, "free", "x", 0, probe_called=called, inflated=inflated)
+
+    scen = [Scenario.from_dict(s.to_dict() | {"id": sid}) for sid, s in
+            zip(("a", "b"), list(read_jsonl(Path(__file__).parent / "fixtures" / "scenarios.jsonl",
+                                            Scenario))[:2])]
+    # a: called and inflated, called and not; b: not called twice.
+    probes = [probe("a", True, True), probe("a", True, False), probe("b", False, False),
+              probe("b", False, False)]
+    row = behaviour_rates(m.probe_frame(probes, scen), n_boot=50).iloc[0]
+    assert row["rate"] == pytest.approx(1 / 4)  # overall
+    assert row["called_rate"] == pytest.approx(2 / 4)
+    assert row["rate_when_called"] == pytest.approx(1 / 2)
+    assert (row["rate_when_called_num"], row["rate_when_called_den"]) == (1, 2)
+    assert row["called_rate_lo"] <= row["called_rate"] <= row["called_rate_hi"]
 
 
 def test_mixed_logit_drops_constant_factors(pilot):
@@ -126,6 +158,11 @@ def test_analyze_run_writes_report(tmp_path, pilot):
     scenarios, labels, probes = synthetic_run(pilot, n_scenarios=24)
     run = tmp_path / "runs" / "r1"
     write_jsonl(tmp_path / "scenarios.jsonl", scenarios)
+    labels += [Label(scenario_id=scenarios[0].id, condition="free", model="m-a", repeat=0, judge=FINAL,
+                     item_id=None, label=INVENTED, quote=q, quote_flagged=flag)
+               for q, flag in (("in the text", False), ("made up", True))]
+    labels = [replace(l, quote="") if l.quote and l.label != INVENTED else l for l in labels]
+    labels = [l for l in labels if not (l.label == INVENTED and l.quote == "Always notify on-call.")]
     write_jsonl(run / "labels.jsonl", labels)
     write_jsonl(run / "probes.jsonl", probes)
     summary = analyze_run(run, tmp_path / "scenarios.jsonl", n_boot=100)
@@ -142,6 +179,10 @@ def test_analyze_run_writes_report(tmp_path, pilot):
     beh = pd.read_csv(report / "behaviour.csv").groupby("condition")["rate"].mean()
     assert beh["free"] < beh["pinning"]
     assert {"formula", "n", "terms"} <= set(on_disk["regression"]["behaviour"])
+    beh_cols = set(pd.read_csv(report / "behaviour.csv").columns)
+    assert {"rate", "called_rate", "called_rate_lo", "rate_when_called", "rate_when_called_hi"} <= beh_cols
+    assert on_disk["behaviour"][0]["called_rate"] >= on_disk["behaviour"][0]["rate"]
+    assert on_disk["quote_flags"][FINAL]["rate"] == 1 / 2  # see the flagged label below
 
 
 def test_analyze_without_probes_or_variation(tmp_path, pilot):

@@ -8,9 +8,9 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 
-FACTORS = ("condition", "model", "cue", "length")
+FACTORS = ("condition", "model", "cue", "length", "position")
 # Reference level per factor when present, so coefficients read as "versus baseline".
-REFERENCE = {"condition": "free", "cue": "explicit", "length": "short"}
+REFERENCE = {"condition": "free", "cue": "explicit", "length": "short", "position": "early"}
 
 
 def ratio_ci(counts: pd.DataFrame, by: Sequence[str], n_boot: int = 2000, seed: int = 0,

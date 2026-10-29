@@ -204,3 +204,29 @@ def test_ib_compact_dry_run_estimates_without_writing(config, capsys):
     assert "scenarios:     2" in out and "repeats:       3" in out and "model calls:   12" in out
     assert "$" in out
     assert not (tmp / "runs").exists()
+
+
+def test_sectioned_extractor_and_pinning_share_one_summary_per_repeat(tmp_path):
+    # The paired design described under "Design notes" in README.md.
+    from inflatebench.conditions import neutral_context
+    from inflatebench.models import CachedLLM, DiskCache
+
+    readme = (Path(__file__).parent.parent / "README.md").read_text()
+    notes = readme.split("## Design notes", 1)[1]
+    assert all(w in notes for w in ("sectioned", "extractor", "pinning", "paired"))
+
+    history = [Message("user", "Never edit legacy/. For this run only, skip the tests."),
+               Message("assistant", "OK.")]
+    fake = FakeLLM(lambda msgs: f"summary {len(fake.calls)}" if "## Goal" in msgs[0].content
+                   else "- Never edit legacy/.")
+    texts = {}
+    for repeat in range(2):
+        llm = CachedLLM(fake, DiskCache(tmp_path), model=f"m#repeat{repeat}")
+        for name in ("sectioned", "extractor", "pinning"):
+            out = get_condition(name).compact(history, llm)
+            texts[name, repeat] = neutral_context(out).split("\n\n")[1]  # the summary part
+    summary_calls = [c for c in fake.calls if "## Goal" in c[0].content]
+    assert len(summary_calls) == 2  # one sectioned summary per repeat, shared by all three
+    for repeat in range(2):
+        assert texts["sectioned", repeat] == texts["extractor", repeat] == texts["pinning", repeat]
+    assert texts["sectioned", 0] != texts["sectioned", 1]  # repeats are fresh samples
