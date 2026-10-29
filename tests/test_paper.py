@@ -53,7 +53,10 @@ def test_paper_is_anonymous_and_cites_known_keys():
         for group in re.findall(r"\\cite[tp]?\{([^}]+)\}", tex.read_text(encoding="utf-8")):
             cited |= {k.strip() for k in group.split(",")}
     assert cited and cited <= keys
-    assert len(keys) == 8  # the related papers cited in SPEC.md
+    # The related papers SPEC.md requires; the bibliography may cite more.
+    assert {"wang2026lostcompaction", "chen2026governancedecay", "salle2026compactionfriendly",
+            "sun2026compactbench", "woolford2026transparentcompaction", "min2026sjc",
+            "todo2026revoked", "todo2026forgetting"} <= keys
 
 
 def _report(tmp_path, pilot):
