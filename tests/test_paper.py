@@ -52,7 +52,7 @@ def test_paper_is_anonymous_and_cites_known_keys():
     assert re.search(r"^\\usepackage\{tmlr\}", main, re.M)  # no [accepted] or [preprint]
     for name in ("tmlr.sty", "tmlr.bst", "fancyhdr.sty"):
         assert (PAPER / name).exists()
-    sections = [re.search(r"\\section\{(.+?)\}", (PAPER / "sections" / f"{s}.tex").read_text()).group(1)
+    sections = [re.search(r"\\section\{(.+?)\}", (PAPER / "sections" / f"{s}.tex").read_text(encoding="utf-8")).group(1)
                 for s in re.findall(r"\\input\{sections/(\w+)\}", main)]
     assert sections == ["Introduction", "Related Work", "Benchmark", "Experimental Setup", "Results",
                         "Limitations", "Conclusion"]
@@ -84,17 +84,17 @@ def test_make_paper_assets_writes_tables_macros_and_figures(tmp_path, pilot):
     assert tables == {"inflation_rates", "inflation_rates_unflagged", "controls", "precision_recall",
                       "behaviour", "regression_items", "regression_behaviour", "labels",
                       "allowed_labels", "precedence"}
-    infl = (out / "tables" / "inflation_rates.tex").read_text()
+    infl = (out / "tables" / "inflation_rates.tex").read_text(encoding="utf-8")
     assert infl.startswith("\\begin{tabular}{llrrrr}")  # two models, so a model column
     assert "request\\_promoted" in infl and "keep\\_rules" in infl
     # Conditions in the paper's fixed order, within each model.
     rows = [l.split(" & ")[1] for l in infl.splitlines() if l.startswith("m-a &")]
     assert rows == ["free", "sectioned", "keep\\_rules", "extractor", "pinning"]
     assert re.search(r"\d+\.\d \{\\scriptsize\[\d+\.\d, \d+\.\d\]\}", infl)
-    assert "condition: sectioned" in (out / "tables" / "regression_items.tex").read_text()
-    labels = (out / "tables" / "labels.tex").read_text()
+    assert "condition: sectioned" in (out / "tables" / "regression_items.tex").read_text(encoding="utf-8")
+    labels = (out / "tables" / "labels.tex").read_text(encoding="utf-8")
     assert all(f"\\texttt{{{assets.tex(k)}}}" in labels for k in LABEL_DEFINITIONS)
-    macros = (out / "macros.tex").read_text()
+    macros = (out / "macros.tex").read_text(encoding="utf-8")
     assert "\\newcommand{\\ibRunId}{r1}" in macros and "\\newcommand{\\ibNScenarios}{24}" in macros
     assert sorted(p.name for p in (out / "figures").glob("*.png")) == [
         "behaviour.png", "controls_and_loss.png", "inflation_by_type.png", "precision_recall.png"]

@@ -113,7 +113,7 @@ def test_analyze_refuses_partial_or_duplicated_labels_and_probes(pilot_config, m
     use_fake(monkeypatch, RecordingFake(responder))
     fake_run(path, "free", "pinning")
     f = tmp / f"runs/r1/{which}.jsonl"
-    lines = f.read_text().splitlines()
+    lines = f.read_text(encoding="utf-8").splitlines()
     final = next(k for k, line in enumerate(lines) if '"judge": "final"' in line or which == "probes")
     lines = lines[:final] + lines[final + 1:] if edit == "drop" else lines + [lines[final]]
     f.write_text("\n".join(lines) + "\n")
@@ -128,4 +128,4 @@ def test_analyze_of_a_single_judge_still_works(pilot_config, monkeypatch):
     fake_run(path, "free")
     assert main(["--config", str(path), "analyze", "--run-id", "r1", "--judge", "fake-a",
                  "--no-figures", "--n-boot", "10"]) == 0
-    assert json.loads((tmp / "runs/r1/report/summary.json").read_text())["judge"] == "fake-a"
+    assert json.loads((tmp / "runs/r1/report/summary.json").read_text(encoding="utf-8"))["judge"] == "fake-a"

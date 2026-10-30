@@ -53,7 +53,7 @@ def test_a_configured_provider_without_fake_stops_before_any_call(tmp_path):
     """With keys cleared, a stage that would call Anthropic stops on the missing key."""
     import yaml
 
-    cfg = yaml.safe_load(open("config.yaml"))
+    cfg = yaml.safe_load(open("config.yaml", encoding="utf-8"))
     cfg["paths"].update(runs=str(tmp_path / "runs"), cache=str(tmp_path / "cache"))
     (tmp_path / "runs" / "r").mkdir(parents=True)
     (tmp_path / "runs" / "r" / "summaries.jsonl").write_text("")
