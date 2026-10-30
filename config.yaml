@@ -29,7 +29,7 @@ models:
     name: deepseek-flash
     base_url: https://api.deepseek.com
     api_key_env: DEEPSEEK_API_KEY
-    max_tokens: 16384
+    max_tokens: 32768
   agent_haiku:   # same model as main; low effort so tool-use replies stay short (Addendum 2)
     provider: anthropic
     name: claude-haiku-5-5

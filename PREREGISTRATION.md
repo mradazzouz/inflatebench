@@ -188,3 +188,8 @@ All changes below were decided before any main-run data, based on cost, independ
 - Re-validation uses a fresh stratified sample of 100 items (50 per model, new seed, excluding the first 200), labelled independently against the revised guide. The gate is unchanged (overall unweighted judge-human kappa >= 0.7). The first 200 items are re-judged with the revised rubric and reported as a diagnostic only, not as the gate.
 - Full judging of all summaries runs only after the gate is passed.
 - Clarification (2026-10-30, before any judging or labelling under the revised rubric): the headings rule covers any unhedged form of a preference (bare imperative, noun phrase or flat statement), which counts as hardened unless the same entry is hedged.
+## Addendum 4 (2026-10-30), before full judging
+
+- Re-validation on the fresh 100-item sample (seed 20261031) gave judge-human kappa 0.68 (raw agreement 0.90), narrowly below the 0.7 gate. Disagreements were balanced in direction (5 each way). Reviewed against the written revised rubric, about 7 of 10 were annotator departures from the guide (for example a missed second entry) and 2-3 were borderline; no systematic rubric issue remained, so the rubric is not revised further.
+- Deviation: full judging proceeds without the gate being passed. Results are reported with this caveat, alongside the judges-agree robustness analysis and, if available, a second independent annotator's agreement on the same 100 items. The disagreement analysis was made after seeing judge labels and is reported as such.
+- Tie-break judge max_tokens raised from 16384 to 32768 after one tie-break returned no answer within the limit; this changes no other setting.
