@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import random
+from collections import Counter
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -46,6 +47,7 @@ def judge_summaries(panel: PanelJudge, scenarios: Iterable[Scenario],
 
 
 SummaryKey = tuple[str, str, str, int]
+ItemKey = tuple[str, str, str, int, str]  # a summary key and an item id
 
 
 def summary_key(summary: Summary) -> SummaryKey:
@@ -119,8 +121,9 @@ def allocate(sizes: dict[Any, int], n: int, rng: random.Random) -> dict[Any, int
 
 
 def make_annotation_sample(scenarios: Iterable[Scenario], summaries: Iterable[Summary],
-                           n: int = 200, seed: int = 0,
-                           include_history: bool = True) -> tuple[list[dict], list[dict]]:
+                           n: int = 200, seed: int = 0, include_history: bool = True,
+                           exclude: Iterable[ItemKey] = (), uid_start: int = 0,
+                           ) -> tuple[list[dict], list[dict]]:
     """Sample n (summary, item) pairs for human labelling, stratified by item type and condition,
     blind to condition. With summaries from several models, n is first split equally over the
     models (a model with too few pairs passes the rest on), and each model's share is stratified
@@ -136,12 +139,22 @@ def make_annotation_sample(scenarios: Iterable[Scenario], summaries: Iterable[Su
     Returns (sample, key): the sample rows go to the annotation page and carry only an
     opaque uid; the key rows map each uid back to condition, model and repeat, with its stratum
     and weight (pairs in the stratum / pairs drawn from it) for reweighting to the whole pool.
+
+    `exclude` holds (scenario_id, condition, model, repeat, item_id) pairs never to draw, for
+    example those of an earlier sample; the weights still count them in their strata, so the
+    new sample also reweights to the whole pool. uids count up from `uid_start`, so labels saved
+    for an earlier sample cannot be joined to this one's key by mistake.
     """
     by_id = {s.id: s for s in scenarios}
+    exclude = set(exclude)
     strata: dict[tuple[str, str, str], list[tuple[Summary, Item]]] = {}
+    pool: Counter[tuple[str, str, str]] = Counter()
     for summ in summaries:
         for item in by_id[summ.scenario_id].items:
-            strata.setdefault((summ.model, item.type, summ.condition), []).append((summ, item))
+            stratum = (summ.model, item.type, summ.condition)
+            pool[stratum] += 1
+            if (*summary_key(summ), item.id) not in exclude:
+                strata.setdefault(stratum, []).append((summ, item))
     order = sorted(strata, key=lambda s: (s[0], ITEM_TYPES.index(s[1]), s[2]))
     models = sorted({s[0] for s in order})
     rng = random.Random(seed)
@@ -156,7 +169,7 @@ def make_annotation_sample(scenarios: Iterable[Scenario], summaries: Iterable[Su
     rng.shuffle(picked)
     sample, key = [], []
     for k, ((summ, item), stratum) in enumerate(picked):
-        uid = f"u{k:04d}"
+        uid = f"u{uid_start + k:04d}"
         scen = by_id[summ.scenario_id]
         row: dict[str, Any] = {"uid": uid, "scenario_id": scen.id, "item_id": item.id,
                                "item_type": item.type, "item_text": item.text,
@@ -169,7 +182,7 @@ def make_annotation_sample(scenarios: Iterable[Scenario], summaries: Iterable[Su
                     "model": summ.model, "repeat": summ.repeat, "item_id": item.id,
                     # The model is part of the stratum only when the sample spans several.
                     "stratum": "/".join(stratum if len(models) > 1 else stratum[1:]),
-                    "weight": len(strata[stratum]) / take[stratum]})
+                    "weight": pool[stratum] / take[stratum]})
     return sample, key
 
 
@@ -186,10 +199,21 @@ def read_rows(path: str | Path) -> list[dict]:
         return [json.loads(line) for line in f if line.strip()]
 
 
-def sample_weights(key_path: str | Path) -> dict[tuple[str, str, str, int, str], float]:
+def sample_weights(key_path: str | Path) -> dict[ItemKey, float]:
     """Item key (as agreement.item_key) -> sample weight, from the key of make_annotation_sample."""
     return {(r["scenario_id"], r["condition"], r["model"], r["repeat"], r["item_id"]): r["weight"]
             for r in read_rows(key_path)}
+
+
+def sample_item_keys(key_path: str | Path) -> set[ItemKey]:
+    """The (summary, item) pairs in the key of make_annotation_sample."""
+    return {(r["scenario_id"], r["condition"], r["model"], r["repeat"], r["item_id"])
+            for r in read_rows(key_path)}
+
+
+def next_uid(key_paths: Iterable[str | Path]) -> int:
+    """One past the highest uid number in these sample keys (0 for none)."""
+    return max((int(r["uid"][1:]) + 1 for path in key_paths for r in read_rows(path)), default=0)
 
 
 def sample_summary_keys(key_path: str | Path, run_id: str | None = None) -> set[SummaryKey]:

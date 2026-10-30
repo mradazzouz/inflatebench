@@ -297,6 +297,18 @@ def _judge_llm(cfg: dict[str, Any], ref: Any, usage: Any, no_batch: bool = False
 SAMPLE_SUFFIX = "_sample"
 
 
+def _sample_suffix(out: str | None) -> str:
+    """The suffix of labels<suffix>.jsonl named by ib judge --out (default _sample); the
+    judge calls and stage info go to judge_calls<suffix>.jsonl and judge<suffix>.json."""
+    if out is None:
+        return SAMPLE_SUFFIX
+    m = re.fullmatch(r"labels(_[\w.-]+)\.jsonl", out)
+    if not m:
+        raise SystemExit(f"ib judge: --out {out!r} must be a file name like labels_sample_v2.jsonl "
+                         "(it is written into the run folder)")
+    return m.group(1)
+
+
 def _judge(args: argparse.Namespace) -> int:
     from inflatebench.judge import FINAL, LLMJudge, PanelJudge, judge_run, quote_flag_rates, type_flag_rates
     from inflatebench.judge.run import QUOTE_FLAG_LIMIT, sample_summary_keys, summary_key
@@ -306,11 +318,13 @@ def _judge(args: argparse.Namespace) -> int:
     run_dir = _run_dir(cfg, args, "summaries.jsonl")
     scenarios = _scenarios_for(cfg, args, run_dir)
     only, suffix = None, ""
+    if args.out and not args.only_key:
+        raise SystemExit("ib judge: --out needs --only-key (the full run always writes labels.jsonl)")
     if args.only_key:
         key = Path(args.only_key)
         if not key.exists():
             raise SystemExit(f"ib judge: {key} not found; run ib annotate sample first")
-        only, suffix = sample_summary_keys(key, args.run_id), SAMPLE_SUFFIX
+        only, suffix = sample_summary_keys(key, args.run_id), _sample_suffix(args.out)
         held = {summary_key(s) for s in read_jsonl(run_dir / "summaries.jsonl", Summary)}
         if not only & held:
             raise SystemExit(f"ib judge: no summary of run {args.run_id!r} holds an item of {key}")
@@ -338,7 +352,7 @@ def _judge(args: argparse.Namespace) -> int:
     flags = quote_flag_rates(read_jsonl(out, Label))
     type_flags = type_flag_rates(read_jsonl(out, Label))
     _stage_info(run_dir / f"judge{suffix}.json", {
-        "scenarios": str(scenarios), "only_key": args.only_key,
+        "scenarios": str(scenarios), "only_key": args.only_key, "labels": out.name,
         "judges": [{"name": j.name, "role": role, "settings": j.llm.llm.settings, "batch": j.llm.batch}
                    for j, role in zip(panel.judges, ("first", "second", "tiebreak"))],
         "usage": usage.summary(), "quote_flags": flags, "quote_flag_limit": QUOTE_FLAG_LIMIT,
@@ -426,12 +440,19 @@ def _annotate_sample(args: argparse.Namespace) -> int:
     from collections import Counter
 
     from inflatebench.judge import make_annotation_sample
-    from inflatebench.judge.run import summary_key, write_rows
+    from inflatebench.judge.run import next_uid, sample_item_keys, summary_key, write_rows
 
     cfg = load_config(args.config)
     out, key_out = Path(args.out), Path(args.key)
     if out.resolve() == key_out.resolve():
         raise SystemExit("ib annotate sample: --out and --key must be different files")
+    excluded_keys = [Path(p) for p in args.exclude_key or []]
+    for path in excluded_keys:
+        if not path.exists():
+            raise SystemExit(f"ib annotate sample: --exclude-key {path} not found")
+        if path.resolve() in (out.resolve(), key_out.resolve()):
+            raise SystemExit(f"ib annotate sample: --exclude-key {path} is also an output file; "
+                             "write the new sample and key to new files")
     if not args.force and (existing := [str(p) for p in (out, key_out) if p.exists()]):
         raise SystemExit(f"ib annotate sample: {' and '.join(existing)} already exist(s); "
                          "pass --force to overwrite (the preregistered sample is drawn once)")
@@ -439,7 +460,9 @@ def _annotate_sample(args: argparse.Namespace) -> int:
         raise SystemExit(f"ib annotate sample: runs listed more than once: {args.runs}")
     scenarios, pairs = _annotation_runs(cfg, args, args.runs)
     run_of = {summary_key(summ): run_id for run_id, summ in pairs}
-    sample, key = make_annotation_sample(scenarios, [summ for _, summ in pairs], n=args.n, seed=args.seed)
+    exclude = set().union(*map(sample_item_keys, excluded_keys))
+    sample, key = make_annotation_sample(scenarios, [summ for _, summ in pairs], n=args.n, seed=args.seed,
+                                         exclude=exclude, uid_start=next_uid(excluded_keys))
     for row in key:
         row["run_id"] = run_of[(row["scenario_id"], row["condition"], row["model"], row["repeat"])]
     write_rows(out, sample)
@@ -448,6 +471,9 @@ def _annotate_sample(args: argparse.Namespace) -> int:
     print(f"wrote {len(sample)} items (seed {args.seed}) to {out}, with condition and model hidden, "
           f"and their key to {key_out}")
     print("items per model: " + ", ".join(f"{m} {c}" for m, c in sorted(per_model.items())))
+    if excluded_keys:
+        print(f"left out the {len(exclude)} (summary, item) pairs of "
+              + ", ".join(map(str, excluded_keys)))
     if len(sample) < args.n:
         print(f"warning: the runs hold only {len(sample)} (summary, item) pairs, fewer than --n {args.n}",
               file=sys.stderr)
@@ -487,6 +513,15 @@ def _check_lines(result: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _check_path(key_path: Path) -> Path:
+    """Default result file, named after the key so a re-check on a fresh sample keeps the first
+    result: sample_key.jsonl -> check.json, sample_key_v2.jsonl -> check_v2.json, k.jsonl ->
+    check_k.json."""
+    stem = key_path.stem
+    rest = stem[len("sample_key"):] if stem.startswith("sample_key") else f"_{stem}"
+    return key_path.with_name(f"check{rest}.json")
+
+
 def _annotate_check(args: argparse.Namespace) -> int:
     from inflatebench.judge import FINAL, human_check, read_human_labels, sample_weights
     from inflatebench.judge.agreement import item_key
@@ -501,15 +536,18 @@ def _annotate_check(args: argparse.Namespace) -> int:
     if not runs:
         raise SystemExit("ib annotate check: pass --runs (the key does not name its runs)")
 
-    # The judge's final labels: from ib judge --only-key, else from the full run.
+    # The judge's final labels: the first of the --judge-labels files each run holds (by
+    # default those of ib judge --only-key, else the full run's).
+    names = args.judge_labels or [f"labels{SAMPLE_SUFFIX}.jsonl", "labels.jsonl"]
+    if bad := [n for n in names if Path(n).name != n]:
+        raise SystemExit(f"ib annotate check: --judge-labels takes file names in each run folder, not paths: {bad}")
     judge: list[Label] = []
     sources = {}
     for run_id in runs:
         run_dir = Path(cfg["paths"]["runs"]) / run_id
-        path = next((p for p in (run_dir / f"labels{SAMPLE_SUFFIX}.jsonl", run_dir / "labels.jsonl")
-                     if p.exists()), None)
+        path = next((run_dir / n for n in names if (run_dir / n).exists()), None)
         if path is None:
-            raise SystemExit(f"ib annotate check: no judge labels in {run_dir}; "
+            raise SystemExit(f"ib annotate check: no judge labels ({', '.join(names)}) in {run_dir}; "
                              f"run ib judge --run-id {run_id} --only-key {key_path}")
         sources[run_id] = str(path)
         judge += [lab for lab in read_jsonl(path, Label) if lab.judge == FINAL]
@@ -551,7 +589,7 @@ def _annotate_check(args: argparse.Namespace) -> int:
     print("GATE PASSED" if result["passes"] else
           "GATE FAILED: revise the rubric and re-validate on a fresh sample (PREREGISTRATION.md)")
 
-    out = Path(args.out) if args.out else key_path.with_name("check.json")
+    out = Path(args.out) if args.out else _check_path(key_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(_strict_json(result), indent=2) + "\n", encoding="utf-8")
     print(f"wrote {out}")
@@ -597,6 +635,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--only-key", default=None,
                    help="judge only the summaries holding items of this human-check sample key, "
                         f"into labels{SAMPLE_SUFFIX}.jsonl (labels.jsonl is left alone)")
+    p.add_argument("--out", default=None,
+                   help=f"with --only-key: the labels file in the run folder instead of labels{SAMPLE_SUFFIX}.jsonl, "
+                        "e.g. labels_sample_v2.jsonl; its judge calls and info get the same suffix")
 
     p = sub.add_parser("probe", help="write runs/<run_id>/probes.jsonl")
     p.add_argument("--run-id", required=True)
@@ -629,6 +670,9 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("--key", default="annotation/sample_key.jsonl",
                    help="key mapping each item to run, condition, model, stratum and weight")
     q.add_argument("--scenarios", default=None, help=scen_help)
+    q.add_argument("--exclude-key", action="append", default=None, metavar="KEY",
+                   help="never draw the items of this earlier sample key (repeatable); "
+                        "uids continue after its highest")
     q.add_argument("--force", action="store_true", help="overwrite existing output files")
     q.set_defaults(func=_annotate_sample)
     q = ann.add_parser("check", help="human-vs-judge and human-vs-human agreement, and the kappa gate")
@@ -637,7 +681,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="label files saved from annotation/index.html (one or more annotators)")
     q.add_argument("--runs", nargs="+", default=None,
                    help="run ids holding the judge's labels (default: the runs named in the key)")
-    q.add_argument("--out", default=None, help="where to save the result (default: check.json next to --key)")
+    q.add_argument("--judge-labels", nargs="+", default=None, metavar="NAME",
+                   help="judge label file names to look for in each run folder, first found wins "
+                        f"(default: labels{SAMPLE_SUFFIX}.jsonl labels.jsonl)")
+    q.add_argument("--out", default=None, help="where to save the result (default: next to --key, named after it: "
+                        "sample_key_v2.jsonl -> check_v2.json)")
     q.set_defaults(func=_annotate_check)
 
     for name, func in [("generate", _generate), ("compact", _compact), ("judge", _judge),
