@@ -230,9 +230,9 @@ def test_cli_generate_heldout(tmp_path):
     out = tmp_path / "heldout.jsonl"
     assert main(["generate", "--heldout", "--out", str(out)]) == 0
     assert list(read_jsonl(out, Scenario)) == generate_heldout()
-    cfg = yaml.safe_load(open(ROOT / "config.yaml"))
+    cfg = yaml.safe_load(open(ROOT / "config.yaml", encoding="utf-8"))
     assert cfg["paths"]["heldout"] == "data/heldout.jsonl"
-    assert "data/heldout.jsonl" in (ROOT / ".gitignore").read_text().split()
+    assert "data/heldout.jsonl" in (ROOT / ".gitignore").read_text(encoding="utf-8").split()
     with pytest.raises(SystemExit):
         main(["generate", "--heldout", "--pilot", "--out", str(out)])
 

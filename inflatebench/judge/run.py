@@ -45,11 +45,23 @@ def judge_summaries(panel: PanelJudge, scenarios: Iterable[Scenario],
     return step()
 
 
-def judge_run(panel: PanelJudge, scenarios_path: str | Path, run_dir: str | Path) -> Path:
+SummaryKey = tuple[str, str, str, int]
+
+
+def summary_key(summary: Summary) -> SummaryKey:
+    return (summary.scenario_id, summary.condition, summary.model, summary.repeat)
+
+
+def judge_run(panel: PanelJudge, scenarios_path: str | Path, run_dir: str | Path,
+              only: set[SummaryKey] | None = None, out_name: str = "labels.jsonl") -> Path:
+    """Judge the run's summaries into run_dir/out_name; with `only`, just the summaries whose
+    summary_key is in it (for example those in the human-check sample, see sample_summary_keys)."""
     run_dir = Path(run_dir)
-    labels = judge_summaries(panel, read_jsonl(scenarios_path, Scenario),
-                             read_jsonl(run_dir / "summaries.jsonl", Summary))
-    out = run_dir / "labels.jsonl"
+    summaries = read_jsonl(run_dir / "summaries.jsonl", Summary)
+    if only is not None:
+        summaries = [s for s in summaries if summary_key(s) in only]
+    labels = judge_summaries(panel, read_jsonl(scenarios_path, Scenario), summaries)
+    out = run_dir / out_name
     write_jsonl(out, labels)
     return out
 
@@ -178,6 +190,13 @@ def sample_weights(key_path: str | Path) -> dict[tuple[str, str, str, int, str],
     """Item key (as agreement.item_key) -> sample weight, from the key of make_annotation_sample."""
     return {(r["scenario_id"], r["condition"], r["model"], r["repeat"], r["item_id"]): r["weight"]
             for r in read_rows(key_path)}
+
+
+def sample_summary_keys(key_path: str | Path, run_id: str | None = None) -> set[SummaryKey]:
+    """The summaries that hold sampled items, from the key of make_annotation_sample; with
+    `run_id`, only those of that run (key rows written by ib annotate sample carry run_id)."""
+    return {(r["scenario_id"], r["condition"], r["model"], r["repeat"]) for r in read_rows(key_path)
+            if run_id is None or r.get("run_id", run_id) == run_id}
 
 
 def read_human_labels(labels_path: str | Path, key_path: str | Path) -> list[Label]:

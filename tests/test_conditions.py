@@ -40,7 +40,7 @@ def run(name, history=HISTORY):
 def test_registry_matches_config():
     assert list(CONDITIONS) == ["free", "sectioned", "keep_rules", "extractor", "pinning", "free_limited",
                                 "sectioned_noconstraints"]
-    assert list(CONDITIONS) == yaml.safe_load(open("config.yaml"))["conditions"]
+    assert list(CONDITIONS) == yaml.safe_load(open("config.yaml", encoding="utf-8"))["conditions"]
     assert all(get_condition(n).name == n for n in CONDITIONS)
     with pytest.raises(ValueError):
         get_condition("nope")
@@ -165,7 +165,7 @@ SCENARIO = {
 def config(tmp_path):
     scenarios = tmp_path / "scenarios.jsonl"
     write_jsonl(scenarios, [Scenario.from_dict(SCENARIO), Scenario.from_dict({**SCENARIO, "id": "pilot-02"})])
-    cfg = yaml.safe_load(Path("config.yaml").read_text())
+    cfg = yaml.safe_load(Path("config.yaml").read_text(encoding="utf-8"))
     cfg["paths"].update(scenarios=str(scenarios), runs=str(tmp_path / "runs"), cache=str(tmp_path / "cache"))
     cfg["prices"] = {"fake": {"input": 1.0, "output": 5.0}}
     path = tmp_path / "config.yaml"
@@ -182,7 +182,7 @@ def test_ib_compact_with_fake_writes_every_condition_and_repeat(config):
         (sid, c, r) for sid in ("pilot-01", "pilot-02") for c in CONDITIONS for r in range(2)
     }
     assert all(s.model == "fake" and s.text.startswith(prompt("summary_header")) for s in summaries)
-    calls = [json.loads(line) for line in (tmp / "runs/r1/calls.jsonl").read_text().splitlines()]
+    calls = [json.loads(line) for line in (tmp / "runs/r1/calls.jsonl").read_text(encoding="utf-8").splitlines()]
     # One call each for free, sectioned, keep_rules and the two ablations; two each for
     # extractor and pinning.
     assert len(calls) == 2 * 2 * (5 + 2 + 2)
@@ -194,7 +194,7 @@ def test_ib_compact_rerun_hits_cache(config):
     argv = ["--config", str(path), "compact", "--run-id", "r1", "--fake", "--condition", "sectioned"]
     main(argv)
     main(argv)
-    calls = [json.loads(line) for line in (tmp / "runs/r1/calls.jsonl").read_text().splitlines()]
+    calls = [json.loads(line) for line in (tmp / "runs/r1/calls.jsonl").read_text(encoding="utf-8").splitlines()]
     assert calls and all(c["cached"] for c in calls)
 
 
@@ -214,7 +214,7 @@ def test_sectioned_extractor_and_pinning_share_one_summary_per_repeat(tmp_path):
     from inflatebench.conditions import neutral_context
     from inflatebench.models import CachedLLM, DiskCache
 
-    readme = (Path(__file__).parent.parent / "README.md").read_text()
+    readme = (Path(__file__).parent.parent / "README.md").read_text(encoding="utf-8")
     notes = readme.split("## Design notes", 1)[1]
     assert all(w in notes for w in ("sectioned", "extractor", "pinning", "paired"))
 

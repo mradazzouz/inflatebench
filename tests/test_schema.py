@@ -119,5 +119,5 @@ def test_probe_result_round_trip():
 def test_jsonl_round_trip(tmp_path):
     path = tmp_path / "nested" / "scenarios.jsonl"
     write_jsonl(path, [spec_scenario(), spec_scenario()])
-    assert len(path.read_text().splitlines()) == 2
+    assert len(path.read_text(encoding="utf-8").splitlines()) == 2
     assert list(read_jsonl(path, Scenario)) == [spec_scenario(), spec_scenario()]

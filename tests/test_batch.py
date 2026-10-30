@@ -49,7 +49,7 @@ def config(tmp_path):
     other = {**SCENARIO, "id": "pilot-02",
              "history": SCENARIO["history"] + [{"role": "user", "content": "Also add SMS alerts."}]}
     write_jsonl(scenarios, [Scenario.from_dict(SCENARIO), Scenario.from_dict(other)])
-    cfg = yaml.safe_load(Path("config.yaml").read_text())
+    cfg = yaml.safe_load(Path("config.yaml").read_text(encoding="utf-8"))
     cfg["paths"].update(scenarios=str(scenarios), runs=str(tmp_path / "runs"), cache=str(tmp_path / "cache"))
     # The phase counts below are for the five main conditions (the ablations add single calls).
     cfg["conditions"] = ["free", "sectioned", "keep_rules", "extractor", "pinning"]
@@ -92,13 +92,13 @@ def test_compact_sends_first_calls_then_dependent_calls(config, monkeypatch, cap
     assert second == [prompt("extract")] * 4
     assert len(fake.calls) == 16 + 4  # every distinct call paid once
 
-    rows = [json.loads(line) for line in (tmp / "runs/r1/calls.jsonl").read_text().splitlines()]
+    rows = [json.loads(line) for line in (tmp / "runs/r1/calls.jsonl").read_text(encoding="utf-8").splitlines()]
     assert len(rows) == 2 * 2 * (3 + 2 + 2)
     assert sum(not r["cached"] for r in rows) == 20 and all(r["batch"] or r["cached"] for r in rows)
 
     # Same summaries as single calls, from a fresh cache.
     batched = summaries(tmp)
-    cfg = yaml.safe_load(path.read_text())
+    cfg = yaml.safe_load(path.read_text(encoding="utf-8"))
     cfg["paths"]["cache"] = str(tmp / "cache2")
     path.write_text(yaml.safe_dump(cfg))
     single = RecordingFake(responder)
@@ -197,12 +197,12 @@ def test_cli_judge_fake_batches(config, monkeypatch):
     use_fake(monkeypatch, RecordingFake(responder))
     compact(path)
     assert main(["--config", str(path), "judge", "--run-id", "r1", "--fake"]) == 0
-    batched = (tmp / "runs/r1/labels.jsonl").read_text()
-    calls = (tmp / "runs/r1/judge_calls.jsonl").read_text().splitlines()
+    batched = (tmp / "runs/r1/labels.jsonl").read_text(encoding="utf-8")
+    calls = (tmp / "runs/r1/judge_calls.jsonl").read_text(encoding="utf-8").splitlines()
     paid = [json.loads(c) for c in calls if not json.loads(c)["cached"]]
     assert paid and all(c["batch_id"] and c["batch"] for c in paid)
     assert main(["--config", str(path), "judge", "--run-id", "r1", "--fake", "--no-batch"]) == 0
-    assert (tmp / "runs/r1/labels.jsonl").read_text() == batched
+    assert (tmp / "runs/r1/labels.jsonl").read_text(encoding="utf-8") == batched
 
 
 def test_deferred_queues_misses_and_hands_fresh_results_over_once(tmp_path):

@@ -110,7 +110,7 @@ def test_usage_log_writes_jsonl_and_totals(tmp_path):
     usage = UsageLog(path)
     usage.record(Completion("t", "m", input_tokens=10, output_tokens=2, cost=0.5, date="d"), key="k1")
     usage.record(Completion("t", "m", input_tokens=10, output_tokens=2, cost=0.5, cached=True), key="k1")
-    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     assert [r["cached"] for r in rows] == [False, True]
     assert rows[0]["model"] == "m" and rows[0]["input_tokens"] == 10 and rows[0]["date"] == "d"
     assert "text" not in rows[0]
@@ -386,7 +386,7 @@ def test_extra_params_from_config_are_sent_and_keyed(tmp_path, monkeypatch):
 def test_config_example_for_glm_builds_a_provider(monkeypatch):
     from inflatebench.models import make_llm
 
-    entry = yaml.safe_load(open("config.yaml"))["models"]["local"]
+    entry = yaml.safe_load(open("config.yaml", encoding="utf-8"))["models"]["local"]
     assert entry["name"] == "glm-5.3-flash" and entry["params"] == {"reasoning_effort": "low"}
     monkeypatch.setenv("ZAI_API_KEY", "zai-test")
     llm = make_llm(entry)
@@ -443,7 +443,7 @@ def scenario(i, history_chars=4000):
 def test_compact_dry_run_estimates_cost(tmp_path, capsys):
     scen = tmp_path / "s.jsonl"
     scen.write_text("".join(json.dumps(scenario(i)) + "\n" for i in range(10)))
-    cfg = yaml.safe_load(open("config.yaml"))
+    cfg = yaml.safe_load(open("config.yaml", encoding="utf-8"))
     cfg["models"]["main"]["name"] = "m"
     cfg["models"]["strong"]["name"] = "m"
     cfg["models"]["strong"]["subset"] = 4
@@ -469,7 +469,7 @@ def test_compact_dry_run_estimates_cost(tmp_path, capsys):
 def test_compact_dry_run_without_price_or_scenarios(tmp_path, capsys):
     scen = tmp_path / "s.jsonl"
     scen.write_text(json.dumps(scenario(0)) + "\n")
-    cfg = yaml.safe_load(open("config.yaml"))
+    cfg = yaml.safe_load(open("config.yaml", encoding="utf-8"))
     cfg["prices"] = {}
     cfg_path = tmp_path / "config.yaml"
     cfg_path.write_text(yaml.safe_dump(cfg))
@@ -545,7 +545,7 @@ def test_make_llm_builds_anthropic_provider(monkeypatch):
 def compact_config(tmp_path, main_model):
     scen = tmp_path / "s.jsonl"
     scen.write_text("".join(json.dumps(scenario(i, 40)) + "\n" for i in range(5)))
-    cfg = yaml.safe_load(open("config.yaml"))
+    cfg = yaml.safe_load(open("config.yaml", encoding="utf-8"))
     cfg["models"]["main"] = main_model
     cfg["paths"].update(scenarios=str(scen), runs=str(tmp_path / "runs"), cache=str(tmp_path / "cache"))
     path = tmp_path / "config.yaml"
@@ -556,10 +556,10 @@ def compact_config(tmp_path, main_model):
 def test_ib_compact_runs_the_configured_provider_without_fake(tmp_path):
     path = compact_config(tmp_path, {"provider": "fake", "name": "f", "responses": ["NONE"], "subset": 3})
     assert main(["--config", path, "compact", "--run-id", "r", "--condition", "free", "--repeats", "1"]) == 0
-    lines = (tmp_path / "runs/r/summaries.jsonl").read_text().splitlines()
+    lines = (tmp_path / "runs/r/summaries.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(lines) == 3  # the model's subset
     assert all(json.loads(line)["model"] == "f" for line in lines)
-    calls = [json.loads(line) for line in (tmp_path / "runs/r/calls.jsonl").read_text().splitlines()]
+    calls = [json.loads(line) for line in (tmp_path / "runs/r/calls.jsonl").read_text(encoding="utf-8").splitlines()]
     assert {"cache_write_tokens", "cache_read_tokens", "cost"} <= set(calls[0])
 
 
@@ -569,7 +569,7 @@ def test_ib_compact_subset_is_balanced_over_domains(tmp_path):
     scen = tmp_path / "s.jsonl"
     scen.write_text("".join(json.dumps(scenario(i, 40) | {"domain": d}) + "\n" for i, d in enumerate(domains)))
     assert main(["--config", path, "compact", "--run-id", "r", "--condition", "free", "--repeats", "1"]) == 0
-    lines = (tmp_path / "runs/r/summaries.jsonl").read_text().splitlines()
+    lines = (tmp_path / "runs/r/summaries.jsonl").read_text(encoding="utf-8").splitlines()
     # 2 per domain (indices 0 and 2 of each domain come first), not the first 4 of the file.
     assert [json.loads(line)["scenario_id"] for line in lines] == ["s-0", "s-2", "s-3", "s-5"]
 
@@ -607,7 +607,7 @@ def test_truncated_reply_is_saved_for_inspection_raised_and_never_cached(tmp_pat
         llm.complete(HISTORY, accept_refusal=True)
     assert llm.request(HISTORY, accept_refusal=True) not in llm.cache
     (saved,) = debug.glob("*.json")
-    record = json.loads(saved.read_text())
+    record = json.loads(saved.read_text(encoding="utf-8"))
     assert record["completion"]["text"].startswith('{"tool": "save_draft"')
     assert record["completion"]["thinking"] == "planning the draft\n\n[redacted thinking]"
     assert record["completion"]["stop_reason"] == "max_tokens" and record["completion"]["output_tokens"] == 8192
@@ -633,7 +633,7 @@ def test_truncated_batch_reply_is_saved_and_not_cached(tmp_path):
         llm.run_batch([req], sleep=no_sleep)
     assert req not in llm.cache
     (saved,) = (tmp_path / "debug").glob("*.json")
-    assert json.loads(saved.read_text())["completion"]["text"] == "partial summary"
+    assert json.loads(saved.read_text(encoding="utf-8"))["completion"]["text"] == "partial summary"
 
 
 def test_thinking_is_kept_apart_from_the_answer_and_out_of_the_usage_log(tmp_path):
@@ -651,7 +651,7 @@ def test_thinking_is_kept_apart_from_the_answer_and_out_of_the_usage_log(tmp_pat
 
     log = tmp_path / "usage.jsonl"
     UsageLog(log).record(c, "k")
-    assert "thinking" not in json.loads(log.read_text())
+    assert "thinking" not in json.loads(log.read_text(encoding="utf-8"))
 
 
 def test_anthropic_per_model_params_are_sent_and_keyed_only_when_set(tmp_path, monkeypatch):

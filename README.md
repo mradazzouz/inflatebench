@@ -95,7 +95,7 @@ use the same file without `--scenarios`. For a real run, fill in the model names
 
 Each stage logs its model calls (`calls.jsonl`, `judge_calls.jsonl`, `probe_calls.jsonl`)
 with model, date, token counts and cost, and records the models, provider settings, date and
-spend of the stage run in `run.json`, `judge.json` and `probe.json`. Human labels for the judge check are collected
+spend of the stage run in `run.json`, `judge.json` and `probe.json`. Human labels for the judge check (workflow under [The human check](#the-human-check)) are collected
 with `annotation/index.html`; annotators follow [LABEL_GUIDE.md](LABEL_GUIDE.md), the one-page guide
 with the judge's label definitions, allowed labels and precedence order. The items for it (`make_annotation_sample` in `judge/run.py`) are
 drawn at random within strata of item type and condition, with an equal share per stratum (with
@@ -107,6 +107,58 @@ overall kappa and per-label kappa (each label against the rest) in two labelled 
 `unweighted_sample` (every sampled item counts once; the 0.7 gate uses its overall kappa) and
 `weighted_population` (items weighted by the key's weights, `sample_weights(key_path)`: an
 estimate of agreement over all summaries and items).
+
+### The human check
+
+Before the main run, the judge is checked against human labels (PREREGISTRATION.md: the
+overall judge-human kappa must reach 0.7). Run it after `ib compact` for the `main` and `local`
+models (here the runs `main-haiku` and `main-glm`) and before judging or probing them at scale:
+
+1. **Draw the sample.** 200 (summary, item) pairs, split equally over the runs' models, then
+   stratified by item type × condition within each model:
+
+   ```sh
+   ib annotate sample --runs main-haiku main-glm --n 200 --seed 0 --out annotation/sample.jsonl --key annotation/sample_key.jsonl
+   ```
+
+   `sample.jsonl` holds what annotators see, with condition and model hidden behind an opaque
+   uid; `sample_key.jsonl` maps each uid to its run, condition, model, repeat, stratum and
+   weight. Keep the key away from annotators. The command refuses to overwrite either file
+   unless given `--force`, so the preregistered sample is not redrawn by accident.
+2. **Label.** Each annotator opens `annotation/index.html` in a browser (it works offline,
+   from a file), enters their name, loads `annotation/sample.jsonl` and labels every item
+   following [LABEL_GUIDE.md](LABEL_GUIDE.md). Labels are kept in the browser between sessions;
+   **Resume labels** loads a saved file back.
+3. **Save.** **Save labels (.jsonl)** downloads `sample.labels.<name>.jsonl`; collect one file
+   per annotator.
+4. **Judge the sample.** Judge only the summaries that hold sampled items, once per run:
+
+   ```sh
+   ib judge --run-id main-haiku --only-key annotation/sample_key.jsonl
+   ```
+
+   ```sh
+   ib judge --run-id main-glm --only-key annotation/sample_key.jsonl
+   ```
+
+   This writes `labels_sample.jsonl`, `judge_sample.json` and `judge_calls_sample.jsonl` in each
+   run folder and leaves `labels.jsonl` alone. The judge calls are cached, so the full `ib judge`
+   later answers these summaries from the cache.
+5. **Check the gate.**
+
+   ```sh
+   ib annotate check --key annotation/sample_key.jsonl --labels sample.labels.ana.jsonl sample.labels.bo.jsonl --runs main-haiku main-glm
+   ```
+
+   It prints, for each annotator against the judge's final labels and for each pair of
+   annotators, the agreement, overall kappa and per-label kappa in the two blocks
+   `unweighted_sample` and `weighted_population` (below), saves them to `annotation/check.json`
+   (`--out` to change), and says whether the gate is passed: the unweighted overall kappa of
+   every annotator against the judge at least 0.7. It exits with status 1 when the gate fails.
+   The judge's labels come from each run's `labels_sample.jsonl` (else `labels.jsonl`); the
+   check stops if any sampled item has no judge label. `--runs` defaults to the runs named in
+   the key. If the gate fails, the rubric is revised and re-validated on a fresh sample drawn
+   with a new seed (PREREGISTRATION.md).
 
 ### The behaviour probe
 

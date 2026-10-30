@@ -216,7 +216,7 @@ def test_fake_judge_labels_kept_and_lost_items(pilot_all):
 
 
 def pipeline_config(tmp_path, **overrides) -> str:
-    cfg = yaml.safe_load(open("config.yaml"))
+    cfg = yaml.safe_load(open("config.yaml", encoding="utf-8"))
     cfg.update(overrides)
     cfg["paths"].update(scenarios=str(tmp_path / "missing.jsonl"), runs=str(tmp_path / "runs"),
                         cache=str(tmp_path / "cache"))
@@ -231,15 +231,15 @@ def test_cli_full_pipeline_with_fakes(tmp_path):
     run = tmp_path / "runs" / "e2e"
     assert main(base + ["compact", "--run-id", "e2e", "--scenarios", str(PILOT), "--fake",
                         "--repeats", "1", "--limit", "5"]) == 0
-    assert json.loads((run / "run.json").read_text())["scenarios"] == str(PILOT)
+    assert json.loads((run / "run.json").read_text(encoding="utf-8"))["scenarios"] == str(PILOT)
     # judge, probe and analyze find the scenarios through run.json
     assert main(base + ["judge", "--run-id", "e2e", "--fake"]) == 0
     assert main(base + ["probe", "--run-id", "e2e", "--fake"]) == 0
     assert main(base + ["analyze", "--run-id", "e2e", "--n-boot", "50", "--no-figures"]) == 0
     probes = list(read_jsonl(run / "probes.jsonl", ProbeResult))
-    n_cond = len(yaml.safe_load(open("config.yaml"))["conditions"])
+    n_cond = len(yaml.safe_load(open("config.yaml", encoding="utf-8"))["conditions"])
     assert len(probes) == 5 * n_cond + 5 and all(p.probe_called for p in probes)
-    summary = json.loads((run / "report/summary.json").read_text())
+    summary = json.loads((run / "report/summary.json").read_text(encoding="utf-8"))
     assert summary["n_scenarios"] == 5 and "behaviour" in summary
     beh = {r["condition"]: r for r in summary["behaviour"]}
     assert "full" in beh and all(r["induced"] == r["rate"] - beh["full"]["rate"]
@@ -255,21 +255,21 @@ def test_cli_stages_log_models_settings_dates_and_costs(tmp_path):
                  "--repeats", "1", "--limit", "2", "--condition", "free"])
     main(base + ["judge", "--run-id", "meta", "--fake"])
     main(base + ["probe", "--run-id", "meta", "--fake", "--max-steps", "3"])
-    info = json.loads((run / "run.json").read_text())
+    info = json.loads((run / "run.json").read_text(encoding="utf-8"))
     assert info["date"] and info["settings"] == {"provider": "fake", "model": "fake"}
     assert info["calls"] == 2 and info["cost"] == 0.0 and info["batch"] is True
-    judge = json.loads((run / "judge.json").read_text())
+    judge = json.loads((run / "judge.json").read_text(encoding="utf-8"))
     assert [j["role"] for j in judge["judges"]] == ["first", "second", "tiebreak"]
     assert all(j["settings"]["provider"] == "fake" for j in judge["judges"])
     assert judge["date"] and judge["usage"]["calls"] == 4
     # The fake judge quotes only text it finds in the summary, so nothing is flagged.
     assert judge["quote_flags"]["final"] == {"quoted": 0, "flagged": 0, "rate": 0.0}
     assert judge["type_flags"]["final"] == {"labels": 2 * 6, "flagged": 0, "rate": 0.0}
-    probe = json.loads((run / "probe.json").read_text())
+    probe = json.loads((run / "probe.json").read_text(encoding="utf-8"))
     assert probe["agent"] == "fake-agent" and probe["max_steps"] == 3 and probe["date"]
     assert probe["settings"]["model"] == "fake-agent" and "cost" in probe["usage"]
     for log in ("calls.jsonl", "judge_calls.jsonl", "probe_calls.jsonl"):
-        rows = [json.loads(line) for line in (run / log).read_text().splitlines()]
+        rows = [json.loads(line) for line in (run / log).read_text(encoding="utf-8").splitlines()]
         assert rows and all(r["date"] and r["model"] for r in rows), log
 
 
@@ -284,13 +284,13 @@ def test_cli_judge_warns_when_too_many_quotes_are_flagged(tmp_path, monkeypatch,
                             lambda labels, r=rate: {"final": {"quoted": 100, "flagged": 0, "rate": r}})
         main(["--config", cfg, "judge", "--run-id", "w", "--fake"])
         assert ("fix the judge instructions" in capsys.readouterr().err) is warned
-    info = json.loads((tmp_path / "runs" / "w" / "judge.json").read_text())
+    info = json.loads((tmp_path / "runs" / "w" / "judge.json").read_text(encoding="utf-8"))
     assert info["quote_flag_limit"] == 0.10
 
 
 def test_cli_stages_report_missing_inputs_and_config(tmp_path):
     # Placeholders as in an unfilled config: no judges and no agent model name.
-    models = yaml.safe_load(open("config.yaml"))["models"]
+    models = yaml.safe_load(open("config.yaml", encoding="utf-8"))["models"]
     models["main"]["name"] = "CHANGE_ME"
     # The agent is set here, so the test does not depend on the agent a local config.yaml names.
     cfg = pipeline_config(tmp_path, judges=["CHANGE_ME", "CHANGE_ME"], tiebreak="CHANGE_ME", models=models,
@@ -383,7 +383,7 @@ def test_every_model_stage_accepts_no_batch(tmp_path):
     main(["--config", cfg, "compact", "--run-id", "nb", "--scenarios", str(PILOT), "--fake",
           "--repeats", "1", "--limit", "1", "--condition", "free", "--no-batch"])
     assert main(["--config", cfg, "probe", "--run-id", "nb", "--fake", "--no-batch", "--no-full"]) == 0
-    assert json.loads((run / "probe.json").read_text())["batch"] is False
+    assert json.loads((run / "probe.json").read_text(encoding="utf-8"))["batch"] is False
     assert len(list(read_jsonl(run / "probes.jsonl", ProbeResult))) == 1
 
 
@@ -418,7 +418,7 @@ def test_ib_probe_saves_a_cut_off_agent_reply_to_the_run_debug_dir(tmp_path, mon
         main(["--config", cfg, "probe", "--run-id", "r", "--fake"])
     run = tmp_path / "runs" / "r"
     (saved,) = (run / "debug").glob("truncated-*.json")
-    record = json.loads(saved.read_text())
+    record = json.loads(saved.read_text(encoding="utf-8"))
     assert record["completion"]["thinking"] == "drafting the whole module"
     assert record["completion"]["text"].startswith('<call>{"tool"')
     assert not (run / "probes.jsonl").exists()
@@ -514,12 +514,12 @@ def test_discarded_text_is_recorded_in_probes_jsonl(tmp_path):
     write_jsonl(run / "summaries.jsonl", [Summary(scen.id, "free", "m", 0, [Message("system", "x")])])
     out = probe_run(FakeLLM([SELF_INVENTED, "Done."], stop_sequences=False), tmp_path / "s.jsonl", run,
                     full=False)
-    row = json.loads(out.read_text().splitlines()[0])
+    row = json.loads(out.read_text(encoding="utf-8").splitlines()[0])
     assert row["discarded"] == [{"step": 0, "chars": row["discarded"][0]["chars"], "calls": 3}]
     assert row["discarded"][0]["chars"] > 0 and len(row["tool_calls"]) == 1
     clean = probe_run(FakeLLM(['<call>{"tool": "run_tests", "args": {}}</call>', "Done."]),
                       tmp_path / "s.jsonl", run, full=False)
-    assert json.loads(clean.read_text().splitlines()[0])["discarded"] == []
+    assert json.loads(clean.read_text(encoding="utf-8").splitlines()[0])["discarded"] == []
 
 
 def test_agent_prompt_requires_one_call_and_no_self_written_results(pilot_all):

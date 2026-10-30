@@ -197,7 +197,7 @@ def test_analyze_run_writes_report(tmp_path, pilot):
                                   "inflation_by_type.png", "precision_recall.png"]
     for fig in summary["figures"]:
         assert (report / "figures" / fig).read_bytes()[:4] == b"\x89PNG"
-    on_disk = json.loads((report / "summary.json").read_text())
+    on_disk = json.loads((report / "summary.json").read_text(encoding="utf-8"))
     assert on_disk["n_scenarios"] == 24
     beh = pd.read_csv(report / "behaviour.csv").groupby("condition")["rate"].mean()
     assert beh["free"] < beh["pinning"]
@@ -348,7 +348,7 @@ def test_judges_agree_robustness_needs_two_main_judges(tmp_path, pilot):
 def test_analyze_run_reads_judge_roles_from_judge_json(tmp_path):
     from inflatebench.cli import main
 
-    cfg = yaml.safe_load(open("config.yaml"))
+    cfg = yaml.safe_load(open("config.yaml", encoding="utf-8"))
     cfg["paths"].update(runs=str(tmp_path / "runs"), cache=str(tmp_path / "cache"))
     path = tmp_path / "config.yaml"
     path.write_text(yaml.safe_dump(cfg))
@@ -358,7 +358,7 @@ def test_analyze_run_reads_judge_roles_from_judge_json(tmp_path):
                  "--limit", "2", "--condition", "free"])
     main(base + ["judge", "--run-id", "r", "--fake"])
     assert main(base + ["analyze", "--run-id", "r", "--n-boot", "10", "--no-figures"]) == 0
-    roles = {j["role"]: j["name"] for j in json.loads((tmp_path / "runs/r/judge.json").read_text())["judges"]}
-    summary = json.loads((tmp_path / "runs/r/report/summary.json").read_text())
+    roles = {j["role"]: j["name"] for j in json.loads((tmp_path / "runs/r/judge.json").read_text(encoding="utf-8"))["judges"]}
+    summary = json.loads((tmp_path / "runs/r/report/summary.json").read_text(encoding="utf-8"))
     assert summary["robustness_judges_agree"]["main_judges"] == [roles["first"], roles["second"]]
     assert (tmp_path / "runs/r/report/inflation_rates_judges_agree.csv").exists()

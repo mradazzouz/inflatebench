@@ -116,7 +116,7 @@ def test_write_atomic_retries_replace_on_permission_error(tmp_path, monkeypatch)
     monkeypatch.setattr(cache_mod.os, "replace", flaky)
     monkeypatch.setattr(cache_mod.time, "sleep", lambda _: None)
     cache_mod._write_atomic(tmp_path / "x.json", {"a": 1})
-    assert (tmp_path / "x.json").read_text() == '{"a": 1}'
+    assert (tmp_path / "x.json").read_text(encoding="utf-8") == '{"a": 1}'
 
     monkeypatch.setattr(cache_mod.os, "replace", lambda *_: (_ for _ in ()).throw(PermissionError(13, "locked")))
     with pytest.raises(PermissionError):
