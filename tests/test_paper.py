@@ -8,7 +8,8 @@ import pytest
 
 from inflatebench.analyze.report import analyze
 from inflatebench.judge import ALLOWED_LABELS, LABEL_DEFINITIONS
-from inflatebench.judge.rubric import PRECEDENCE, STALE_EXAMPLE, STALE_RULE, system_prompt
+from inflatebench.judge.rubric import ENTRY_RULES, PRECEDENCE, system_prompt
+from inflatebench.schema import LABELS
 from conftest import synthetic_run
 
 ROOT = Path(__file__).parent.parent
@@ -30,15 +31,40 @@ def test_label_guide_matches_rubric():
         assert re.search(rf"^\| {item_type} \| [^|]+ \| {', '.join(allowed)} \|$", text, re.M), item_type
     assert " > ".join(PRECEDENCE) in text
     assert "annotation/index.html" in text
-    # The rule for a changed value whose old value still appears, and its worked example, are
-    # the judges' words (labels in backticks instead of quotes).
-    for rule in (STALE_RULE, STALE_EXAMPLE):
-        assert rule.replace('"stale"', "`stale`").replace('"correct"', "`correct`") in text
+    # The rules for an item presented in several entries, each with its worked example, are the
+    # judges' words (labels in backticks instead of quotes), in the same order.
+    positions = []
+    for rule, example in ENTRY_RULES:
+        for part in (rule, example):
+            assert _backticked(part) in text, part[:60]
+            positions.append(text.index(_backticked(part)))
+    assert positions == sorted(positions)
+    # The retired rules are gone: a heading no longer excuses a preference, and one entry
+    # marking a value replaced no longer clears a stale entry elsewhere.
+    for retired in ("under a heading that says", "some place marks the old value as replaced"):
+        assert retired not in text and retired not in system_prompt()
 
 
-def test_judge_prompt_states_the_stale_rule_with_its_example():
+def _backticked(text):
+    for label in LABELS:
+        text = text.replace(f'"{label}"', f"`{label}`")
+    return text
+
+
+def test_judge_prompt_states_each_entry_rule_with_its_example():
     prompt = system_prompt()
-    assert STALE_RULE in prompt and STALE_EXAMPLE in prompt
+    for k, (rule, example) in enumerate(ENTRY_RULES, 1):
+        assert f"{k}. {rule}\n   Example: {example}" in prompt
+    assert len(ENTRY_RULES) == 4
+
+
+def test_entry_rules_examples_use_allowed_labels():
+    # Each worked example names labels its item type allows (one_off, changed_value,
+    # preference, request in rule order).
+    types = ("one_off", "changed_value", "preference", "request")
+    for (_, example), item_type in zip(ENTRY_RULES, types):
+        named = {label for label in LABELS if f'"{label}"' in example}
+        assert named and named <= set(ALLOWED_LABELS[item_type]), (item_type, named)
 
 
 def test_label_guide_examples_use_allowed_labels():

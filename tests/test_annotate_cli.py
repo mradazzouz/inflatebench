@@ -222,3 +222,137 @@ def test_check_rejects_labels_from_another_sample(setup):
     write_rows(stray, [{"uid": "u9999", "annotator": "ana", "label": "correct", "quote": ""}])
     with pytest.raises(SystemExit, match="u9999.*not in"):
         main(["--config", str(config), "annotate", "check", "--key", str(key), "--labels", str(stray)])
+
+
+def _keys(rows):
+    return {(r["scenario_id"], r["condition"], r["model"], r["repeat"], r["item_id"]) for r in rows}
+
+
+def test_sample_exclude_key_draws_fresh_items_with_new_uids(setup, capsys):
+    tmp_path, config = setup
+    _, key = _sample(tmp_path, config, n=24)
+    out2, key2 = tmp_path / "annotation" / "sample_v2.jsonl", tmp_path / "annotation" / "sample_key_v2.jsonl"
+    capsys.readouterr()
+    assert main(["--config", str(config), "annotate", "sample", "--runs", *RUNS, "--n", "24", "--seed", "8",
+                 "--out", str(out2), "--key", str(key2), "--exclude-key", str(key)]) == 0
+    assert f"left out the 24 (summary, item) pairs of {key}" in capsys.readouterr().out
+    first, second = read_rows(key), read_rows(key2)
+    assert len(second) == 24 and not _keys(first) & _keys(second)
+    assert [r["uid"] for r in second] == [f"u{k:04d}" for k in range(24, 48)]
+    assert [r["uid"] for r in read_rows(out2)] == [r["uid"] for r in second]
+    # Weights still count the excluded pairs: weight x pairs drawn is the stratum's whole pool
+    # in both samples.
+    def pool(rows):
+        drawn = Counter(r["stratum"] for r in rows)
+        return {r["stratum"]: r["weight"] * drawn[r["stratum"]] for r in rows}
+
+    shared = pool(first).keys() & pool(second).keys()
+    assert shared and all(pool(first)[s] == pytest.approx(pool(second)[s]) for s in shared)
+
+    # Labels saved for the first sample cannot be joined to the second key.
+    labels = _human_file(tmp_path / "h.jsonl", key, "ana", lambda k: "correct")
+    _judge_sample(tmp_path, config, key2)
+    with pytest.raises(SystemExit, match="u0000.*not in"):
+        main(["--config", str(config), "annotate", "check", "--key", str(key2), "--labels", str(labels)])
+
+    # A third sample may exclude both; everything left is drawn.
+    out3, key3 = tmp_path / "s3.jsonl", tmp_path / "k3.jsonl"
+    assert main(["--config", str(config), "annotate", "sample", "--runs", *RUNS, "--n", "500", "--seed", "9",
+                 "--out", str(out3), "--key", str(key3), "--exclude-key", str(key),
+                 "--exclude-key", str(key2)]) == 0
+    third = read_rows(key3)
+    assert not _keys(third) & (_keys(first) | _keys(second))
+    assert third[0]["uid"] >= "u0048" and min(r["uid"] for r in third) == "u0048"
+
+
+def test_sample_exclude_key_must_exist_and_differ_from_the_outputs(setup):
+    tmp_path, config = setup
+    _, key = _sample(tmp_path, config, n=6)
+    base = ["--config", str(config), "annotate", "sample", "--runs", *RUNS, "--n", "6", "--seed", "1"]
+    with pytest.raises(SystemExit, match="--exclude-key .* not found"):
+        main(base + ["--out", str(tmp_path / "s.jsonl"), "--key", str(tmp_path / "k.jsonl"),
+                     "--exclude-key", str(tmp_path / "missing.jsonl")])
+    with pytest.raises(SystemExit, match="also an output file"):
+        main(base + ["--out", str(tmp_path / "s.jsonl"), "--key", str(key), "--force",
+                     "--exclude-key", str(key)])
+
+
+def test_judge_only_key_out_keeps_the_first_sample_labels(setup, capsys):
+    tmp_path, config = setup
+    _, key = _sample(tmp_path, config, n=6)
+    _judge_sample(tmp_path, config, key)
+    run_dir = tmp_path / "runs" / "main-haiku"
+    before = (run_dir / "labels_sample.jsonl").read_text(encoding="utf-8")
+    out2, key2 = tmp_path / "s2.jsonl", tmp_path / "k2.jsonl"
+    assert main(["--config", str(config), "annotate", "sample", "--runs", *RUNS, "--n", "6", "--seed", "2",
+                 "--out", str(out2), "--key", str(key2), "--exclude-key", str(key)]) == 0
+    capsys.readouterr()
+    assert main(["--config", str(config), "judge", "--run-id", "main-haiku", "--fake",
+                 "--only-key", str(key2), "--out", "labels_sample_v2.jsonl"]) == 0
+    assert str(run_dir / "labels_sample_v2.jsonl") in capsys.readouterr().out
+    assert (run_dir / "labels_sample.jsonl").read_text(encoding="utf-8") == before
+    assert (run_dir / "judge_calls_sample_v2.jsonl").exists()
+    info = json.loads((run_dir / "judge_sample_v2.json").read_text(encoding="utf-8"))
+    assert info["labels"] == "labels_sample_v2.jsonl" and info["only_key"] == str(key2)
+    wanted = {(r["scenario_id"], r["condition"], r["model"], r["repeat"])
+              for r in read_rows(key2) if r["run_id"] == "main-haiku"}
+    assert {(l.scenario_id, l.condition, l.model, l.repeat)
+            for l in read_jsonl(run_dir / "labels_sample_v2.jsonl", Label)} == wanted
+
+
+@pytest.mark.parametrize("args, match", [
+    (["--out", "labels_v2.jsonl"], "--out needs --only-key"),
+    (["--only-key", "KEY", "--out", "labels.jsonl"], "must be a file name like"),
+    (["--only-key", "KEY", "--out", "sub/labels_v2.jsonl"], "must be a file name like"),
+    (["--only-key", "KEY", "--out", "labels_v2.json"], "must be a file name like"),
+])
+def test_judge_out_is_checked(setup, args, match):
+    tmp_path, config = setup
+    _, key = _sample(tmp_path, config, n=6)
+    args = [str(key) if a == "KEY" else a for a in args]
+    with pytest.raises(SystemExit, match=match):
+        main(["--config", str(config), "judge", "--run-id", "main-haiku", "--fake", *args])
+    assert not list((tmp_path / "runs" / "main-haiku").glob("labels*.jsonl"))
+
+
+def test_check_uses_the_named_judge_label_files(setup, capsys):
+    tmp_path, config = setup
+    _, key = _sample(tmp_path, config, n=12)
+    _judge_sample(tmp_path, config, key)
+    out2, key2 = tmp_path / "s2.jsonl", tmp_path / "k2.jsonl"
+    assert main(["--config", str(config), "annotate", "sample", "--runs", *RUNS, "--n", "12", "--seed", "3",
+                 "--out", str(out2), "--key", str(key2), "--exclude-key", str(key)]) == 0
+    for run_id in RUNS:
+        assert main(["--config", str(config), "judge", "--run-id", run_id, "--fake", "--only-key", str(key2),
+                     "--out", "labels_sample_v2.jsonl"]) == 0
+    final = {}
+    for run_id in RUNS:
+        for lab in read_jsonl(tmp_path / "runs" / run_id / "labels_sample_v2.jsonl", Label):
+            if lab.judge == FINAL and lab.item_id:
+                final[(lab.scenario_id, lab.condition, lab.model, lab.repeat, lab.item_id)] = lab.label
+    labels = _human_file(tmp_path / "v2.ana.jsonl", key2, "ana", final.get)
+    check = ["--config", str(config), "annotate", "check", "--key", str(key2), "--labels", str(labels)]
+    # The default looks in labels_sample.jsonl, which holds the first sample only.
+    with pytest.raises(SystemExit, match="sampled items have no judge label"):
+        main(check)
+    capsys.readouterr()
+    assert main(check + ["--judge-labels", "labels_sample_v2.jsonl"]) == 0
+    assert "GATE PASSED" in capsys.readouterr().out
+    # The result is named after the key (k2.jsonl), so check.json of a first check is kept.
+    result = json.loads((key2.parent / "check_k2.json").read_text(encoding="utf-8"))
+    assert result["judge_labels"] == {r: str(tmp_path / "runs" / r / "labels_sample_v2.jsonl") for r in RUNS}
+    # First found wins; a missing name is skipped.
+    assert main(check + ["--judge-labels", "labels_nope.jsonl", "labels_sample_v2.jsonl"]) == 0
+    with pytest.raises(SystemExit, match=r"no judge labels \(labels_nope.jsonl\)"):
+        main(check + ["--judge-labels", "labels_nope.jsonl"])
+    with pytest.raises(SystemExit, match="not paths"):
+        main(check + ["--judge-labels", str(tmp_path / "runs" / "main-haiku" / "labels_sample_v2.jsonl")])
+
+
+@pytest.mark.parametrize("key, check", [("sample_key.jsonl", "check.json"),
+                                        ("sample_key_v2.jsonl", "check_v2.json"),
+                                        ("k2.jsonl", "check_k2.json")])
+def test_check_result_is_named_after_the_key(key, check):
+    from inflatebench.cli import _check_path
+
+    assert _check_path(Path("annotation") / key) == Path("annotation") / check

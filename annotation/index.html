@@ -123,11 +123,11 @@ const LABELS = [
   ["correct", "Kept with the right scope and strength; a one-off or task request may also be left out, as it was done."],
   ["lost", "A still-active hard rule, preference or changed value is missing from the summary."],
   ["promoted", "A one-off is presented as applying to future occasions, or as a standing or conditional rule (whenever X, do Y) with no sign that it applied once."],
-  ["hardened", "A preference is stated with requirement language (must, always, never, required, do not) or listed among requirements kept apart from preferences."],
+  ["hardened", "A preference is stated with requirement language (must, always, never, required, do not), as a bare imperative its entry does not hedge, or listed among requirements kept apart from preferences."],
   ["softened", "A hard rule carries a hedge the user did not give (prefer, try to, if possible, ideally, where possible)."],
   ["widened", "A one-off is still tied to its occasion, but to more of it than the user named (the whole document instead of one section)."],
-  ["request_promoted", "A task request is stated as an ongoing obligation, not as a pending step or finished work."],
-  ["stale", "The old value appears as current, or both values appear without saying which is current."],
+  ["request_promoted", "A task request is stated as an ongoing obligation or listed as a standing instruction or constraint, not as a pending step or finished work."],
+  ["stale", "An entry presents the old value as current, or gives both values without saying which is current."],
 ];
 // Labels each item type allows; the others are disabled (keep in sync with rubric.ALLOWED_LABELS).
 const ALLOWED = {

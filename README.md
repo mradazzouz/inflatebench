@@ -157,8 +157,36 @@ models (here the runs `main-haiku` and `main-glm`) and before judging or probing
    every annotator against the judge at least 0.7. It exits with status 1 when the gate fails.
    The judge's labels come from each run's `labels_sample.jsonl` (else `labels.jsonl`); the
    check stops if any sampled item has no judge label. `--runs` defaults to the runs named in
-   the key. If the gate fails, the rubric is revised and re-validated on a fresh sample drawn
-   with a new seed (PREREGISTRATION.md).
+   the key. `--judge-labels` names other label files to look for in each run folder, first
+   found wins. The result file is named after the key (`sample_key_v2.jsonl` gives
+   `check_v2.json`). If the gate fails, the rubric is revised and re-validated on a fresh
+   sample drawn with a new seed (PREREGISTRATION.md).
+6. **Re-validate on a fresh sample** (only after a failed gate and a rubric revision). Draw
+   new items that leave out the first sample's, judge them into a new file, and check against
+   that file; the first sample's files and `check.json` are kept:
+
+   ```sh
+   ib annotate sample --runs main-haiku main-glm --n 200 --seed 1 --out annotation/sample_v2.jsonl --key annotation/sample_key_v2.jsonl --exclude-key annotation/sample_key.jsonl
+   ```
+
+   ```sh
+   ib judge --run-id main-haiku --only-key annotation/sample_key_v2.jsonl --out labels_sample_v2.jsonl
+   ```
+
+   ```sh
+   ib judge --run-id main-glm --only-key annotation/sample_key_v2.jsonl --out labels_sample_v2.jsonl
+   ```
+
+   ```sh
+   ib annotate check --key annotation/sample_key_v2.jsonl --labels sample_v2.labels.ana.jsonl sample_v2.labels.bo.jsonl --judge-labels labels_sample_v2.jsonl
+   ```
+
+   `--exclude-key` (repeatable) never draws an item of the given key; the new uids continue
+   after its highest, so labels saved for the first sample cannot be checked against the new
+   key by mistake, and the weights still count the excluded items, so the new sample also
+   reweights to the whole pool. `ib judge --out` writes `labels_sample_v2.jsonl`,
+   `judge_calls_sample_v2.jsonl` and `judge_sample_v2.json` and leaves `labels_sample.jsonl`
+   alone. The revised judge prompt misses the cache, so these are new judge calls.
 
 ### The behaviour probe
 
