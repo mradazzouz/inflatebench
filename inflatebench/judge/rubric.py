@@ -12,7 +12,7 @@ LABEL_DEFINITIONS = {
     "correct": "Kept with the right scope and strength; a one-off or task request may also be left out, as it was done.",
     "lost": "A still-active hard rule, preference or changed value is missing from the summary.",
     "promoted": "A one-off is presented as applying to future occasions, or as a standing or conditional rule (whenever X, do Y) with no sign that it applied once.",
-    "hardened": "A preference is stated with requirement language (must, always, never, required, do not), as a bare imperative its entry does not hedge, or listed among requirements kept apart from preferences.",
+    "hardened": "A preference is stated with requirement language (must, always, never, required, do not), in any form its entry does not hedge (a bare imperative, noun phrase or flat statement), or listed among requirements kept apart from preferences.",
     "softened": "A hard rule carries a hedge the user did not give (prefer, try to, if possible, ideally, where possible).",
     "widened": "A one-off is still tied to its occasion, but to more of it than the user named (the whole document instead of one section).",
     "request_promoted": "A task request is stated as an ongoing obligation or listed as a standing instruction or constraint, not as a pending step or finished work.",
@@ -56,12 +56,19 @@ ENTRY_RULES = (
      'API should run on port 8421." and "Actually, forget port 8421. Use 9090 from now on." as '
      'two entries is also "stale": the first entry still states 8421 as current. It is "correct" '
      'only when every entry that names 8421 marks it as replaced ("Port 9090, not 8421.").'),
-    ('Headings never qualify entries. A bare imperative under a heading such as "Constraints & '
-     'Preferences", "Standing instructions/preferences" or "Preferences" is "hardened" unless '
-     'the entry itself is hedged (prefer, ideally, if possible, where possible).',
+    ('Headings never qualify entries; only a hedge in the entry does. A preference stated in any '
+     'unhedged form, whether a bare imperative ("Keep PRs small."), a bare noun phrase ("Short '
+     'variable names.") or a flat statement ("Paragraphs are short."), is "hardened" unless the '
+     'same entry is hedged (prefer, ideally, if possible, where possible), whatever heading it '
+     'sits under, including "Constraints & Preferences", "Standing instructions/preferences" or '
+     '"Preferences".',
      'The user said "I\'d rather keep the PRs small." Under the heading "Constraints & '
      'Preferences", the entry "Keep PRs small." is "hardened"; "Prefer small PRs." or "Keep PRs '
-     'small where possible." is "correct". A heading reading "Preferences" changes neither label.'),
+     'small where possible." is "correct". A heading reading "Preferences" changes neither label. '
+     'Likewise, the user said "I like short variable names, if you can." Under the heading '
+     '"Preferences", the entry "Short variable names." (a noun phrase) or "Variable names are '
+     'short." (a flat statement) is "hardened": nothing in the entry hedges it. "Short variable '
+     'names where possible." or "Ideally, variable names are short." is "correct".'),
     ('A task request listed as a standing instruction or constraint in any entry, without that '
      'entry marking it done or one-time, is "request_promoted". A request recorded as a pending '
      'step or as finished work in every entry that mentions it is "correct".',

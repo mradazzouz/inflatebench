@@ -67,6 +67,25 @@ def test_entry_rules_examples_use_allowed_labels():
         assert named and named <= set(ALLOWED_LABELS[item_type]), (item_type, named)
 
 
+def test_headings_rule_covers_every_unhedged_form():
+    # Rule 3 hardens a preference in any unhedged form, not only a bare imperative, under any
+    # heading; the hardened definition says the same on the judge prompt, guide and page.
+    rule, example = ENTRY_RULES[2]
+    for form in ("bare imperative", "bare noun phrase", "flat statement"):
+        assert form in rule, form
+    for hedge in ("prefer", "ideally", "if possible", "where possible"):
+        assert hedge in rule, hedge
+    assert "whatever heading" in rule
+    # The worked example labels a noun phrase and a flat statement hardened, their hedged
+    # versions correct.
+    assert '"Short variable names." (a noun phrase)' in example
+    assert '"Variable names are short." (a flat statement) is "hardened"' in example
+    assert '"Short variable names where possible." or "Ideally, variable names are short." is "correct"' in example
+    assert "noun phrase or flat statement" in LABEL_DEFINITIONS["hardened"]
+    assert "Headings and unhedged forms" in GUIDE.read_text(encoding="utf-8")
+    assert "only a bare imperative" not in system_prompt()
+
+
 def test_label_guide_examples_use_allowed_labels():
     text = GUIDE.read_text(encoding="utf-8")
     for label, item_type in re.findall(r"^\| (\w+) \| (\w+): ", text, re.M):
