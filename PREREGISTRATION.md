@@ -191,5 +191,6 @@ All changes below were decided before any main-run data, based on cost, independ
 ## Addendum 4 (2026-10-30), before full judging
 
 - Re-validation on the fresh 100-item sample (seed 20261031) gave judge-human kappa 0.68 (raw agreement 0.90), narrowly below the 0.7 gate. Disagreements were balanced in direction (5 each way). Reviewed against the written revised rubric, about 7 of 10 were annotator departures from the guide (for example a missed second entry) and 2-3 were borderline; no systematic rubric issue remained, so the rubric is not revised further.
+- Diagnostic: re-judging the first 200 items with the revised rubric gave kappa 0.67 (stale 0.89); reported as a diagnostic only, since those items informed the revision.
 - Deviation: full judging proceeds without the gate being passed. Results are reported with this caveat, alongside the judges-agree robustness analysis and, if available, a second independent annotator's agreement on the same 100 items. The disagreement analysis was made after seeing judge labels and is reported as such.
-- Tie-break judge max_tokens raised from 16384 to 32768 after one tie-break returned no answer within the limit; this changes no other setting.
+- Tie-break judge max_tokens raised from 16384 to 32768 after one tie-break returned no answer within the limit; no other setting changed.
