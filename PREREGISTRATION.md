@@ -180,3 +180,10 @@ All changes below were decided before any main-run data, based on cost, independ
 - Judge rubric: the stale rule is clarified for old values retained verbatim in pinned or extracted blocks (see LABEL_GUIDE.md).
 - Scenario padding revised to remove internal contradictions; one-off templates whose stated reason could still apply at the next task were revised by logical review only (not by probe outcomes); scenarios regenerated with the same seeds.
 - Probe agent: agent_haiku (claude-haiku-5-5, output_config effort low, max_tokens 16000); one tool call per reply with later text discarded; mock tools accept all actions valid in each scenario's world.
+
+## Addendum 3 (2026-10-30), before full judging
+
+- The human-check gate failed: judge-human kappa 0.56 (raw agreement 0.92) on the 200-item sample (seed 20261030), one annotator. Of 17 disagreements, most arose where a compacted context presented an item in more than one way (summary vs appended or pinned list) or where a bare imperative appeared under a mixed "Constraints & Preferences" heading; the rubric had no consistent rule for these cases.
+- Rubric revised with one principle, chosen because an agent reads every entry and a persisting wrong entry can cause wrong actions: entries are judged separately, qualifiers count only within the same entry, and an item is labelled inflated or stale if any entry presents it so as a current instruction. Headings do not qualify entries. This replaces the earlier stale rule from Addendum 2.
+- Re-validation uses a fresh stratified sample of 100 items (50 per model, new seed, excluding the first 200), labelled independently against the revised guide. The gate is unchanged (overall unweighted judge-human kappa >= 0.7). The first 200 items are re-judged with the revised rubric and reported as a diagnostic only, not as the gate.
+- Full judging of all summaries runs only after the gate is passed.
