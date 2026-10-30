@@ -89,7 +89,9 @@ kbd { font: 12px ui-monospace, monospace; border: 1px solid var(--line); border-
     Only the labels that apply to the item's type can be chosen. If several apply, use the first
     in this order: lost, stale, promoted, widened, request promoted, hardened, softened, correct.
     A changed value whose old value still stands as current anywhere (also in a constraint list)
-    is stale unless the text says it was replaced; see LABEL_GUIDE.md.</p>
+    is stale unless the text says it was replaced. A preference in any unhedged form (a bare
+    imperative, noun phrase or flat statement) is hardened under any heading unless its own entry
+    hedges it; see LABEL_GUIDE.md.</p>
   </section>
   <section id="left" hidden>
     <h2>Summary</h2>
@@ -123,7 +125,7 @@ const LABELS = [
   ["correct", "Kept with the right scope and strength; a one-off or task request may also be left out, as it was done."],
   ["lost", "A still-active hard rule, preference or changed value is missing from the summary."],
   ["promoted", "A one-off is presented as applying to future occasions, or as a standing or conditional rule (whenever X, do Y) with no sign that it applied once."],
-  ["hardened", "A preference is stated with requirement language (must, always, never, required, do not), as a bare imperative its entry does not hedge, or listed among requirements kept apart from preferences."],
+  ["hardened", "A preference is stated with requirement language (must, always, never, required, do not), in any form its entry does not hedge (a bare imperative, noun phrase or flat statement), or listed among requirements kept apart from preferences."],
   ["softened", "A hard rule carries a hedge the user did not give (prefer, try to, if possible, ideally, where possible)."],
   ["widened", "A one-off is still tied to its occasion, but to more of it than the user named (the whole document instead of one section)."],
   ["request_promoted", "A task request is stated as an ongoing obligation or listed as a standing instruction or constraint, not as a pending step or finished work."],
