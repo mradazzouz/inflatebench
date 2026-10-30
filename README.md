@@ -163,10 +163,10 @@ models (here the runs `main-haiku` and `main-glm`) and before judging or probing
    sample drawn with a new seed (PREREGISTRATION.md).
 6. **Re-validate on a fresh sample** (only after a failed gate and a rubric revision). Draw
    new items that leave out the first sample's, judge them into a new file, and check against
-   that file; the first sample's files and `check.json` are kept:
+   that file (PREREGISTRATION.md, addendum 3); the first sample's files and `check.json` are kept:
 
    ```sh
-   ib annotate sample --runs main-haiku main-glm --n 200 --seed 1 --out annotation/sample_v2.jsonl --key annotation/sample_key_v2.jsonl --exclude-key annotation/sample_key.jsonl
+   ib annotate sample --runs main-haiku main-glm --n 100 --seed <new seed> --out annotation/sample_v2.jsonl --key annotation/sample_key_v2.jsonl --exclude-key annotation/sample_key.jsonl
    ```
 
    ```sh
