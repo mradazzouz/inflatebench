@@ -194,3 +194,7 @@ All changes below were decided before any main-run data, based on cost, independ
 - Diagnostic: re-judging the first 200 items with the revised rubric gave kappa 0.67 (stale 0.89); reported as a diagnostic only, since those items informed the revision.
 - Deviation: full judging proceeds without the gate being passed. Results are reported with this caveat, alongside the judges-agree robustness analysis and, if available, a second independent annotator's agreement on the same 100 items. The disagreement analysis was made after seeing judge labels and is reported as such.
 - Tie-break judge max_tokens raised from 16384 to 32768 after one tie-break returned no answer within the limit; no other setting changed.
+
+## Addendum 5 (2026-10-31), during the behaviour probes
+
+- The first probe run stopped on one episode where the agent (claude-haiku-5-5) produced a degenerate loop ("<invoke_tool_placeholder>" repeated) until max_tokens. Agent replies that are cut off at max_tokens or are degenerate repetitions without a valid tool call now get one retry; if the retry also fails, the episode is recorded as "truncated", excluded from the behavioural rate denominators, and reported separately per condition, like refusals. Normal calls, prompts and settings are unchanged.
