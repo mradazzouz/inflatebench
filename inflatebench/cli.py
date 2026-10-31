@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 import yaml
 
-from inflatebench.schema import Label, Message, Scenario, Summary, read_jsonl, write_jsonl
+from inflatebench.schema import Label, Message, ProbeResult, Scenario, Summary, read_jsonl, write_jsonl
 
 if TYPE_CHECKING:
     from inflatebench.models import LLM, Completion
@@ -370,7 +370,7 @@ def _judge(args: argparse.Namespace) -> int:
 
 def _probe(args: argparse.Namespace) -> int:
     from inflatebench.models import CachedLLM, DiskCache
-    from inflatebench.probe import probe_run
+    from inflatebench.probe import probe_run, truncation_report
 
     cfg = load_config(args.config)
     run_dir = _run_dir(cfg, args, "summaries.jsonl")
@@ -387,12 +387,14 @@ def _probe(args: argparse.Namespace) -> int:
                       debug_dir=run_dir / DEBUG_DIR)
     out = probe_run(agent, scenarios, run_dir, agent_name=name, max_steps=args.max_steps,
                     full=not args.no_full)
+    truncated = truncation_report(read_jsonl(out, ProbeResult))
     _stage_info(run_dir / "probe.json", {"scenarios": str(scenarios), "agent": name,
                                          "settings": agent.settings, "max_steps": args.max_steps,
                                          "full_history_baseline": not args.no_full, "batch": False,
-                                         "usage": usage.summary()})
+                                         "truncated": truncated, "usage": usage.summary()})
     print(f"wrote probes to {out} ({usage.calls} agent calls, {usage.cache_hits} from cache, "
-          f"${usage.cost:.4f})")
+          f"${usage.cost:.4f}; {truncated['truncated']} truncated, "
+          f"{truncated['truncated_rate']:.2%})")
     return 0
 
 

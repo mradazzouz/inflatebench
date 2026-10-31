@@ -169,6 +169,70 @@ def test_behaviour_reports_the_refusal_rate():
     assert free["rate"] == pytest.approx(1 / 4) and rows.loc["full", "refusal_rate"] == 0
 
 
+def two_scenarios():
+    return [Scenario.from_dict(s.to_dict() | {"id": sid}) for sid, s in
+            zip(("a", "b"), list(read_jsonl(Path(__file__).parent / "fixtures" / "scenarios.jsonl",
+                                            Scenario))[:2])]
+
+
+def test_truncated_probes_are_left_out_of_behaviour_rates_and_reported_apart():
+    scen = two_scenarios()
+    probes = [ProbeResult("a", "free", "x", 0, probe_called=True, inflated=True),
+              ProbeResult("a", "free", "x", 1, refusal="text"),
+              ProbeResult("b", "free", "x", 0, probe_called=True),
+              ProbeResult("b", "free", "x", 1, truncated="max_tokens"),
+              # Inflated before its loop: still left out, as the episode never finished.
+              ProbeResult("b", "free", "x", 2, probe_called=True, inflated=True, truncated="degenerate"),
+              ProbeResult("a", "full", "x", 0, probe_called=True),
+              ProbeResult("b", "full", "x", 0, probe_called=True, inflated=True)]
+    df = m.probe_frame(probes, scen)
+    assert df["truncated"].tolist() == [False, False, False, True, True, False, False]
+    free = behaviour_rates(df, n_boot=50).set_index("condition").loc["free"]
+    # Every behavioural denominator counts the 3 completed probes only.
+    assert (free["num"], free["den"]) == (1, 3) and free["rate"] == pytest.approx(1 / 3)
+    assert free["called_rate_den"] == 3 and free["called_rate"] == pytest.approx(2 / 3)
+    assert free["refusal_rate_den"] == 3 and free["refusal_rate"] == pytest.approx(1 / 3)
+    assert (free["rate_when_called_num"], free["rate_when_called_den"]) == (1, 2)
+    # Truncation is reported over all probes, like refusals, next to the rates.
+    assert (free["truncated_num"], free["truncated_den"]) == (2, 5)
+    assert free["truncated_rate"] == pytest.approx(2 / 5)
+    assert free["truncated_rate_lo"] <= free["truncated_rate"] <= free["truncated_rate_hi"]
+    rows = behaviour_rates(df, n_boot=50).set_index("condition")
+    assert rows.loc["full", "truncated_rate"] == 0
+    assert rows.loc["free", "induced"] == pytest.approx(1 / 3 - 1 / 2)
+
+
+def test_without_truncation_behaviour_rates_are_unchanged():
+    scen = two_scenarios()
+    probes = [ProbeResult(sid, cond, "x", rep, probe_called=rep > 0, inflated=rep == 2)
+              for sid in ("a", "b") for cond in ("free", "full") for rep in range(3)]
+    with_trunc = probes + [ProbeResult("a", "free", "x", 9, truncated="max_tokens")]
+    clean = behaviour_rates(m.probe_frame(probes, scen), n_boot=50)
+    trunc = behaviour_rates(m.probe_frame(with_trunc, scen), n_boot=50)
+    cols = [c for c in clean.columns if not c.startswith("truncated")]
+    pd.testing.assert_frame_equal(clean[cols], trunc[cols])
+    assert (clean["truncated_num"] == 0).all()
+
+
+def test_a_condition_whose_probes_were_all_truncated_still_appears():
+    scen = two_scenarios()
+    probes = [ProbeResult("a", "free", "x", 0, truncated="degenerate"),
+              ProbeResult("a", "full", "x", 0, probe_called=True)]
+    rows = behaviour_rates(m.probe_frame(probes, scen), n_boot=20).set_index("condition")
+    assert rows.loc["free", "truncated_rate"] == 1.0 and np.isnan(rows.loc["free", "rate"])
+
+
+def test_behaviour_regression_leaves_out_truncated_probes():
+    from inflatebench.analyze.report import regressions
+
+    scen = two_scenarios()
+    probes = [ProbeResult(sid, "free", "x", rep, inflated=rep % 2 == 0)
+              for sid in ("a", "b") for rep in range(4)]
+    # Truncated probes that would make the outcome constant if they counted.
+    df = m.probe_frame([replace(p, truncated="max_tokens") if not p.inflated else p for p in probes], scen)
+    assert regressions(m.item_frame([], scen), df)["behaviour"] == "skipped: outcome has a single value"
+
+
 def test_mixed_logit_drops_constant_factors(pilot):
     scenarios, labels, _ = synthetic_run(pilot, n_scenarios=12, models=("only",))
     items = m.item_frame(labels, scenarios)
@@ -187,6 +251,7 @@ def test_analyze_run_writes_report(tmp_path, pilot):
     labels = [replace(l, quote="") if l.quote and l.label != INVENTED else l for l in labels]
     labels = [l for l in labels if not (l.label == INVENTED and l.quote == "Always notify on-call.")]
     write_jsonl(run / "labels.jsonl", labels)
+    probes[0] = replace(probes[0], truncated="degenerate", retries=[0])
     write_jsonl(run / "probes.jsonl", probes)
     summary = analyze_run(run, tmp_path / "scenarios.jsonl", n_boot=100)
     report = run / "report"
@@ -206,6 +271,13 @@ def test_analyze_run_writes_report(tmp_path, pilot):
     assert {"rate", "called_rate", "called_rate_lo", "rate_when_called", "rate_when_called_hi"} <= beh_cols
     assert on_disk["behaviour"][0]["called_rate"] >= on_disk["behaviour"][0]["rate"]
     assert on_disk["quote_flags"][FINAL]["rate"] == 1 / 2  # see the flagged label below
+    # The truncated probe is reported per condition and left out of the behavioural rates.
+    trunc = on_disk["truncated_probes"]
+    assert trunc["truncated"] == 1 and trunc["probes"] == len(probes)
+    assert trunc["by_condition"][probes[0].condition]["truncated"] == 1
+    rows = pd.read_csv(report / "behaviour.csv")
+    assert rows["truncated_num"].sum() == 1 and rows["truncated_den"].sum() == len(probes)
+    assert rows["den"].sum() == len(probes) - 1
 
 
 def test_robustness_tables_exclude_flagged_labels(tmp_path, pilot):

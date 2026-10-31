@@ -21,6 +21,9 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+# A caller's check of a reply: why it is unusable, or None (CachedLLM.complete).
+Reject = Callable[["Completion"], "str | None"]
+
 # Stop reasons that mean the reply was cut off by the token limit (Anthropic, OpenAI-compatible).
 TRUNCATED = frozenset({"max_tokens", "length"})
 # Stop reasons that mean the provider refused to answer (Anthropic, OpenAI-compatible).
@@ -30,7 +33,19 @@ _SAFE_CHARS = "A-Za-z0-9_.-"
 
 
 class ReplyError(RuntimeError):
-    """A reply that must not be cached or counted: empty, or cut off by max_tokens."""
+    """A reply that must not be cached or counted: empty, cut off by max_tokens, or rejected by
+    the caller's own check. `reason` is "truncated", "empty" or "rejected"; `completion` is the
+    unusable reply (never cached)."""
+
+    def __init__(self, message: str, reason: str = "", completion: Completion | None = None) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.completion = completion
+
+
+def problem_reason(completion: Completion) -> str:
+    """ReplyError.reason for a reply that reply_problem rejected."""
+    return "truncated" if completion.stop_reason in TRUNCATED else "empty"
 
 
 def reply_problem(completion: Completion, accept_refusal: bool = False) -> str | None:
@@ -156,40 +171,52 @@ class CachedLLM:
 
         return Request(model=self.model, messages=list(messages), params=dict(kw), settings=dict(self.settings))
 
-    def complete(self, messages: list[Message], **kw: Any) -> Completion:
-        return self.complete_request(self.request(messages, **kw))
+    def complete(self, messages: list[Message], reject: Reject | None = None, **kw: Any) -> Completion:
+        """`reject` (never part of the request or its key) is the caller's own check of a reply:
+        it returns why the reply is unusable, or None. A rejected reply raises ReplyError and is
+        never cached, like a truncated one."""
+        return self.complete_request(self.request(messages, **kw), reject)
 
-    def check(self, completion: Completion, request: Request | None = None) -> Completion:
-        """The completion, or ReplyError when it is empty or truncated (never cached or used).
-        A request with accept_refusal=True also takes a provider refusal as an answer."""
+    def check(self, completion: Completion, request: Request | None = None,
+              reject: Reject | None = None) -> Completion:
+        """The completion, or ReplyError when it is empty, truncated or rejected by `reject`
+        (never cached or used). A request with accept_refusal=True also takes a provider
+        refusal as an answer."""
         problem = reply_problem(completion, bool(request and request.params.get("accept_refusal")))
+        reason = problem_reason(completion) if problem else ""
+        if not problem and reject is not None and (problem := reject(completion)):
+            reason = "rejected"
         if problem:
-            saved = self.save_truncated(request, completion) if request is not None else None
-            raise ReplyError(f"{self.model}: {problem}" + (f"; reply saved to {saved}" if saved else ""))
+            saved = (self.save_truncated(request, completion, force=reason == "rejected")
+                     if request is not None else None)
+            raise ReplyError(f"{self.model}: {problem}" + (f"; reply saved to {saved}" if saved else ""),
+                             reason, completion)
         return completion
 
-    def save_truncated(self, request: Request, completion: Completion) -> Path | None:
-        """Write a reply cut off at the token limit (text, thinking, the request) to debug_dir
-        for inspection; it is never cached. Returns the file, or None when nothing is saved."""
-        if self.debug_dir is None or completion.stop_reason not in TRUNCATED:
+    def save_truncated(self, request: Request, completion: Completion, force: bool = False) -> Path | None:
+        """Write a reply cut off at the token limit (or, with `force`, any unusable reply: text,
+        thinking, the request) to debug_dir for inspection; it is never cached. Returns the
+        file, or None when nothing is saved."""
+        if self.debug_dir is None or not (force or completion.stop_reason in TRUNCATED):
             return None
         key = request.key()
         stamp = re.sub(r"[^0-9T]", "", completion.date or "")[:15] or "nodate"
-        path = self.debug_dir / f"truncated-{key[:16]}-{stamp}.json"
+        kind = "truncated" if completion.stop_reason in TRUNCATED else "rejected"
+        path = self.debug_dir / f"{kind}-{key[:16]}-{stamp}.json"
         _write_atomic(path, {"key": key, "model": self.model, "completion": asdict(completion),
                              "request": request.to_dict()})
-        log.warning("%s: reply cut off at the token limit; saved to %s", self.model, path)
+        log.warning("%s: unusable reply (%s); saved to %s", self.model, kind, path)
         return path
 
-    def complete_request(self, request: Request) -> Completion:
+    def complete_request(self, request: Request, reject: Reject | None = None) -> Completion:
         """complete() for a prepared request, whatever cache label (request.model) it carries."""
         request = replace(request, settings=dict(self.settings))
         hit = self.cache.get(request)
         if hit is not None:
-            hit = replace(self.check(hit, request), cached=True)
+            hit = replace(self.check(hit, request, reject), cached=True)
             self.usage.record(hit, request.key())
             return hit
-        completion = self.check(self.llm.complete(request.messages, **request.params), request)
+        completion = self.check(self.llm.complete(request.messages, **request.params), request, reject)
         self.cache.put(request, completion)
         self.usage.record(completion, request.key())
         return completion

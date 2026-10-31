@@ -125,6 +125,7 @@ The judge also lists any **invented** rules that match no planted item; a rule t
 - Constraint recall: share of active rules preserved; loss rate equals 1 minus recall.
 - Behavioural inflation rate: share of probes where the agent acts on an inflated rule.
 - Refusal rate: share of probes where the agent refuses the task instead of calling the probe tool, reported alongside the behavioural rates (a refusal counts as not inflated).
+- Truncated rate: share of probes ended by a step whose reply and one retry were both cut off at max_tokens or a degenerate loop with no tool call. Truncated probes are left out of every behavioural rate (denominators included) and the behaviour regression, and reported separately per condition and model.
 - Compaction-induced behavioural inflation: a condition's behavioural inflation rate minus the full-history rate for the same model, with a paired bootstrap interval.
 - Statistics: 95% bootstrap intervals that resample one-off templates (each with all its scenarios), and a mixed-effects logistic regression with condition, model, cue, length and one-off position as fixed effects and random intercepts for template and scenario. The behaviour regression uses the full-history baseline as its reference condition.
 

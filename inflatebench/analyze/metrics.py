@@ -141,10 +141,16 @@ def probe_frame(probes: Iterable[ProbeResult], scenarios: Iterable[Scenario]) ->
     factors = {s.id: scenario_factors(s) for s in scenarios}
     rows = [{"scenario_id": p.scenario_id, "condition": p.condition, "model": p.model,
              "repeat": p.repeat, "inflated": bool(p.inflated), "probe_called": bool(p.probe_called),
-             "refused": bool(p.refusal), **factors[p.scenario_id]}
+             "refused": bool(p.refusal), "truncated": bool(p.truncated), **factors[p.scenario_id]}
             for p in probes]
     return pd.DataFrame(rows, columns=["scenario_id", "condition", "model", "repeat", "inflated",
-                                       "probe_called", "refused", *FACTOR_COLUMNS])
+                                       "probe_called", "refused", "truncated", *FACTOR_COLUMNS])
+
+
+def completed(probes: pd.DataFrame) -> pd.DataFrame:
+    """The probes that enter the behavioural rates: all but the truncated ones (a step whose
+    reply and retry were both cut off or a degenerate loop; reported by truncated_counts)."""
+    return probes[~probes["truncated"].astype(bool)]
 
 
 def eligible(df: pd.DataFrame, kind: str) -> pd.Series:
@@ -218,6 +224,11 @@ def called_counts(probes: pd.DataFrame, by: list[str] = GROUP) -> pd.DataFrame:
 def refusal_counts(probes: pd.DataFrame, by: list[str] = GROUP) -> pd.DataFrame:
     """Probes where the agent refused the task (and never called the probe tool) over all probes."""
     return per_scenario(probes, probes["refused"], pd.Series(True, index=probes.index), by)
+
+
+def truncated_counts(probes: pd.DataFrame, by: list[str] = GROUP) -> pd.DataFrame:
+    """Truncated probes over all probes, truncated ones included."""
+    return per_scenario(probes, probes["truncated"], pd.Series(True, index=probes.index), by)
 
 
 def behaviour_when_called_counts(probes: pd.DataFrame, by: list[str] = GROUP) -> pd.DataFrame:

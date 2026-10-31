@@ -7,8 +7,9 @@ does to the agent's behaviour from what the agent does with the whole conversati
 
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 
 from inflatebench.probe.agent import MAX_STEPS, run_agent
 from inflatebench.probe.check import inflated, refusal
@@ -33,8 +34,12 @@ def probe_context(agent: LLM, scenario: Scenario, context: list[Message], condit
         inflated=inflated(episode.calls, scenario.probe),
         agent=agent_name,
         probe_called=any(c["tool"] == scenario.probe.tool for c in episode.calls),
-        refusal=refusal(episode.final, episode.provider_refused, episode.calls, scenario.probe),
+        # A truncated episode is not behaviour: it is never counted as a refusal.
+        refusal="" if episode.truncated else refusal(episode.final, episode.provider_refused,
+                                                     episode.calls, scenario.probe),
         discarded=episode.discarded,
+        truncated=episode.truncated,
+        retries=episode.retries,
     )
 
 
@@ -67,6 +72,21 @@ def probe_summaries(agent: LLM, scenarios: Iterable[Scenario], summaries: Iterab
         out += [probe_full(agent, by_id[sid], model, repeat, agent_name, max_steps)
                 for sid, model, repeat in keys]
     return out
+
+
+def truncation_report(results: Iterable[ProbeResult]) -> dict[str, Any]:
+    """Truncated probes (count and rate) and retried steps, overall and per condition."""
+    results = list(results)
+
+    def counts(rs: list[ProbeResult]) -> dict[str, Any]:
+        n, k = len(rs), sum(bool(r.truncated) for r in rs)
+        return {"probes": n, "truncated": k, "truncated_rate": k / n if n else 0.0,
+                "by_kind": dict(Counter(r.truncated for r in rs if r.truncated)),
+                "retried_probes": sum(bool(r.retries) for r in rs)}
+
+    conditions = sorted({r.condition for r in results})
+    return counts(results) | {"by_condition": {c: counts([r for r in results if r.condition == c])
+                                               for c in conditions}}
 
 
 def probe_run(agent: LLM, scenarios_path: str | Path, run_dir: str | Path, agent_name: str = "",

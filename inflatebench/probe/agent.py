@@ -8,22 +8,29 @@ A model that keeps writing after its call tends to invent the result itself and 
 (calls, made-up results, more calls, until max_tokens), so the loop runs only the first call
 of a reply and discards everything after it, and asks the provider to stop generating at the
 end of a call (STOP).
+
+A reply cut off at max_tokens, or one with no tool call that is a degenerate loop (the same
+short line over and over), is a glitch, not behaviour: the step is retried once with a fresh
+call (attempt=1, a key-only param, so only the retry gets a new cache key). If the retry fails
+too the episode ends as `truncated` and is reported apart from the behavioural rates. Neither
+reply is ever cached.
 """
 
 from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from inflatebench.models.cache import REFUSED
+from inflatebench.models.cache import REFUSED, TRUNCATED, ReplyError
 from inflatebench.models.chat import TOOL_PREFIX
 from inflatebench.probe.tools import call_tool, describe, format_result, tools_for
 from inflatebench.schema import Message, Scenario
 
 if TYPE_CHECKING:
-    from inflatebench.models import LLM
+    from inflatebench.models import LLM, Completion
 
 MAX_STEPS = 8
 # Where a tool call ends. Providers that support stop sequences end the reply there (the
@@ -60,6 +67,8 @@ class Episode:
     """Every tool call the agent made (with an error, if the mock rejected it) and its last reply.
 
     `provider_refused` is set when the provider stopped a reply as a refusal; the episode ends there.
+    `truncated` is set ("max_tokens" or "degenerate") when a step's reply and its one retry were
+    both unusable; the episode ends there. `retries` lists the steps that were retried.
     `discarded` has one entry per reply that went on after its tool call: the step, how many
     characters were dropped and how many further tool calls they held.
     """
@@ -69,6 +78,8 @@ class Episode:
     steps: int = 0
     provider_refused: bool = False
     discarded: list[dict[str, Any]] = field(default_factory=list)
+    truncated: str = ""
+    retries: list[int] = field(default_factory=list)
 
 
 def _tool_objects(text: str):
@@ -121,6 +132,60 @@ def first_call(text: str) -> Turn:
     return Turn((name, args), kept, text[end:].strip())
 
 
+# A degenerate loop: one short line making up most of a long reply, as in a reply of nothing
+# but "<invoke_tool_placeholder>" and blank lines until max_tokens.
+LOOP_LINE_CHARS = 80
+LOOP_MIN_REPEATS = 10
+LOOP_MIN_SHARE = 0.5
+
+
+def degenerate(text: str) -> bool:
+    """Whether a reply is a degenerate repetition: no tool call, and one short line repeated at
+    least LOOP_MIN_REPEATS times, making up at least LOOP_MIN_SHARE of its non-blank lines."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return False
+    line, count = Counter(lines).most_common(1)[0]
+    if len(line) > LOOP_LINE_CHARS or count < LOOP_MIN_REPEATS or count < LOOP_MIN_SHARE * len(lines):
+        return False
+    return first_call(text).call is None
+
+
+def loop_problem(completion: Completion) -> str | None:
+    """The cache's reject check for agent replies (models.cache.CachedLLM.complete). A provider
+    refusal is behaviour to record, whatever its text."""
+    if completion.stop_reason in REFUSED or not degenerate(completion.text):
+        return None
+    return "degenerate repetition with no tool call"
+
+
+def _reply(llm: LLM, messages: list[Message], params: dict[str, Any]) -> tuple[Completion | None, str]:
+    """One agent reply, or (None, why) when it is unusable: "max_tokens" or "degenerate".
+
+    A cached LLM rejects such replies itself, so they are never cached; any other LLM's reply is
+    checked here.
+    """
+    from inflatebench.models.cache import CachedLLM
+
+    kw = dict(accept_refusal=True, stop=STOP, **params)
+    try:
+        if isinstance(llm, CachedLLM):
+            completion = llm.complete(messages, reject=loop_problem, **kw)
+        else:
+            completion = llm.complete(messages, **kw)
+    except ReplyError as e:
+        if e.reason == "truncated":
+            return None, "max_tokens"
+        if e.reason == "rejected":
+            return None, "degenerate"
+        raise
+    if completion.stop_reason in TRUNCATED:
+        return None, "max_tokens"
+    if loop_problem(completion):
+        return None, "degenerate"
+    return completion, ""
+
+
 def build_messages(scenario: Scenario, context: list[Message], tools: list[str]) -> list[Message]:
     return [Message("system", SYSTEM.format(tools=describe(tools))), *context,
             Message("user", scenario.next_task)]
@@ -133,7 +198,15 @@ def run_agent(llm: LLM, scenario: Scenario, context: list[Message],
     episode = Episode()
     for step in range(max_steps):
         # A refusal is behaviour to record, not a broken reply (models.cache.reply_problem).
-        completion = llm.complete(messages, accept_refusal=True, stop=STOP, **params)
+        completion, problem = _reply(llm, messages, params)
+        if completion is None:
+            # One fresh call; attempt is key-only, so normal calls keep their cache keys.
+            episode.retries.append(step)
+            completion, problem = _reply(llm, messages, {**params, "attempt": 1})
+        if completion is None:
+            episode.steps += 1
+            episode.truncated = problem
+            break
         reply = completion.text
         episode.steps += 1
         episode.final = reply
