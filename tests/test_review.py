@@ -55,8 +55,9 @@ def test_unusable_reply_already_in_the_cache_is_refused(tmp_path):
         llm.complete([Message("user", "hi")])
 
 
-def test_agent_reply_cut_off_is_an_error_not_an_uninflated_probe(tmp_path):
-    """A JSON tool call cut off mid-way parses as no call, which would count as not inflated."""
+def test_agent_reply_cut_off_is_a_truncated_probe_not_an_uninflated_one(tmp_path):
+    """A JSON tool call cut off mid-way parses as no call, which would count as not inflated;
+    after one retry it is recorded as truncated, which the analysis leaves out."""
     from inflatebench.probe import probe_summary
     from inflatebench.schema import Summary
 
@@ -65,8 +66,9 @@ def test_agent_reply_cut_off_is_an_error_not_an_uninflated_probe(tmp_path):
     cut.complete = lambda m, _c=cut.complete, **kw: replace(_c(m, **kw), stop_reason="max_tokens")
     agent = CachedLLM(cut, DiskCache(tmp_path), model="agent")
     summary = Summary(scenario.id, "free", "m", 0, [Message("system", "Summary: worker was restarted.")])
-    with pytest.raises(ReplyError):
-        probe_summary(agent, scenario, summary)
+    res = probe_summary(agent, scenario, summary)
+    assert res.truncated == "max_tokens" and res.retries == [0] and not res.tool_calls
+    assert len(cut.calls) == 2 and not list(tmp_path.rglob("*.json"))  # retried once, never cached
 
 
 def test_compact_rejects_a_condition_listed_twice(config, monkeypatch):

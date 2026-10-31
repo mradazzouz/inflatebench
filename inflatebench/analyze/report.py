@@ -46,6 +46,10 @@ def behaviour_rates(probes: pd.DataFrame, n_boot: int = 2000, seed: int = 0) -> 
     not inflated in `rate`) and behavioural inflation among probes that called it
     (rate_when_called).
 
+    Truncated probes (a step whose reply and its retry were both cut off at max_tokens or a
+    degenerate loop) are left out of every one of these rates, their denominators included, and
+    reported apart as truncated_rate over all probes (truncated_num, truncated_den).
+
     With the full-history baseline in the probes (condition "full"), each compacted condition
     also gets `induced` (its rate minus the full-history rate for the same model, with a paired
     bootstrap interval): the behavioural inflation that compaction causes. The same difference
@@ -53,6 +57,8 @@ def behaviour_rates(probes: pd.DataFrame, n_boot: int = 2000, seed: int = 0) -> 
     """
     from inflatebench.probe.run import FULL
 
+    every = probes
+    probes = m.completed(probes)
     out = ratio_ci(m.behaviour_counts(probes), m.GROUP, n_boot, seed)
     for counts, prefix in ((m.called_counts, "called_rate"), (m.refusal_counts, "refusal_rate"),
                            (m.behaviour_when_called_counts, "rate_when_called")):
@@ -65,14 +71,27 @@ def behaviour_rates(probes: pd.DataFrame, n_boot: int = 2000, seed: int = 0) -> 
         d = diff_ci(counts(probes), FULL, n_boot=n_boot, seed=seed)
         d = d.rename(columns={"diff": prefix, "diff_lo": f"{prefix}_lo", "diff_hi": f"{prefix}_hi"})
         out = out.merge(d, on=m.GROUP, how="left")
-    return out
+    t = ratio_ci(m.truncated_counts(every), m.GROUP, n_boot, seed)
+    t = t.rename(columns={"rate": "truncated_rate", "lo": "truncated_rate_lo",
+                          "hi": "truncated_rate_hi", "num": "truncated_num", "den": "truncated_den"})
+    # Outer: a group whose probes were all truncated still shows up, with no behavioural rate.
+    return out.merge(t.drop(columns=["scenarios", "clusters"]), on=m.GROUP, how="outer")
+
+
+def truncated_summary(probes: pd.DataFrame) -> dict[str, Any]:
+    """Truncated probes overall and per condition (count, all probes, rate)."""
+    def one(df: pd.DataFrame) -> dict[str, Any]:
+        n, k = len(df), int(df["truncated"].sum())
+        return {"probes": n, "truncated": k, "truncated_rate": k / n if n else 0.0}
+
+    return one(probes) | {"by_condition": {c: one(g) for c, g in probes.groupby("condition", sort=True)}}
 
 
 def regressions(items: pd.DataFrame, probes: pd.DataFrame | None) -> dict[str, pd.DataFrame | str]:
     """Item-level inflation and probe-level behaviour; a failed fit is reported, not raised."""
     jobs = {"items": items[m.inflation_eligible(items)].assign(inflated=m.any_inflation(items))}
     if probes is not None and len(probes):
-        jobs["behaviour"] = probes
+        jobs["behaviour"] = m.completed(probes)
     out: dict[str, pd.DataFrame | str] = {}
     for name, df in jobs.items():
         if df.empty or df["inflated"].nunique() < 2:
@@ -154,6 +173,7 @@ def analyze(labels: Iterable[Label], scenarios: Iterable[Scenario],
         beh = behaviour_rates(probe_df, n_boot, seed)
         beh.to_csv(out / "behaviour.csv", index=False)
         summary["behaviour"] = _records(beh)
+        summary["truncated_probes"] = truncated_summary(probe_df)
 
     summary["regression"] = {}
     for name, res in regressions(items, probe_df).items():

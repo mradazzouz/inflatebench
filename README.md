@@ -68,7 +68,10 @@ use the same file without `--scenarios`. For a real run, fill in the model names
    calling the probe tool records how in `refusal`: `provider` when the provider stopped a reply
    as a refusal (Anthropic `refusal`, OpenAI-compatible `content_filter`; cached like any
    answer, while compaction and judge calls still reject an empty reply), `text` when the last
-   reply declines in words (a narrow phrase match in `probe/check.py`). Options: `--max-steps N` agent replies per probe,
+   reply declines in words (a narrow phrase match in `probe/check.py`). A probe whose step and
+   its one retry were both cut off or a degenerate loop is recorded as `truncated` (see
+   caching below); `probe.json` gives the truncated count and rate overall and per condition
+   (`truncated`). Options: `--max-steps N` agent replies per probe,
    `--no-full` to skip the baseline (long histories make it the most expensive part), and
    `--no-batch`, accepted as by `ib compact` and `ib judge` (each agent step depends on the reply
    before it, so `ib probe` always makes single calls).
@@ -83,6 +86,10 @@ use the same file without `--scenarios`. For a real run, fill in the model names
    (`rate_when_called`), and the **compaction-induced** rate: each condition's rate minus the
    full-history rate for the same model (`induced`, and `induced_when_called`), with a paired
    bootstrap interval. The behaviour regression uses `full` as its reference condition.
+   Truncated probes are left out of all of these rates, denominators included, and out of the
+   behaviour regression; `truncated_rate` (with `truncated_num` and `truncated_den`, over all
+   probes) reports them per condition and model, and `truncated_probes` in `summary.json`
+   gives the count and rate per condition.
    Flagged labels (quote or type) count in every main table; a robustness check without
    them is written next to them (`inflation_rates_unflagged.csv`,
    `precision_recall_unflagged.csv`, `robustness_unflagged` in `summary.json`). A second one keeps
@@ -334,12 +341,18 @@ and `top_k`. Thinking comes back empty unless `display: summarized` is set.
 
 Every call is cached on disk under `paths.cache` by a hash of its request, so reruns cost
 nothing. A reply that is empty or was cut off by `max_tokens` (stop reason `max_tokens` or
-`length`) is never cached or used: the stage stops with an error, so a truncated summary,
-verdict or agent turn is never scored. `ib analyze` also stops when the final labels or the
+`length`) is never cached or used: the stage stops with an error, so a truncated summary or
+verdict is never scored. An agent turn is the exception, so that one rare glitch does not stop
+a probe run: a reply cut off by `max_tokens`, or one with no tool call that is a degenerate loop
+(one short line repeated at least 10 times, over half the reply's non-blank lines), is retried
+once with a fresh call. Only the retry carries the key-only param `attempt: 1` (never sent to
+the provider), so every normal call keeps its cache key. If the retry fails too, the probe is
+recorded with `truncated` (`max_tokens` or `degenerate`; `retries` lists the retried steps) and
+the run goes on; neither reply is cached. `ib analyze` also stops when the final labels or the
 probes do not cover `summaries.jsonl` exactly once (left over from an earlier `ib compact` of
 the run id, or from a stage that stopped part way); batches submitted by a crashed run are collected on the next run instead of being
 resubmitted. A reply cut off by `max_tokens` is saved for inspection to
-`runs/<run_id>/debug/truncated-<key>-<time>.json` (its text, any thinking the provider returned,
+`runs/<run_id>/debug/truncated-<key>-<time>.json` (a degenerate agent loop to `rejected-<key>-<time>.json`) (its text, any thinking the provider returned,
 token counts and the request), and the error names the file; nothing there is ever read back. Transient errors (429, 5xx, overload, dropped connections) are retried with
 exponential backoff. Each call's model, date, token counts (including prompt-cache reads and
 writes) and cost are logged by `UsageLog`.

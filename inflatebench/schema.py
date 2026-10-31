@@ -176,6 +176,12 @@ class ProbeResult(Record):
     # Replies that went on after their tool call; that text was discarded, never run
     # (probe/agent.py): one {"step", "chars", "calls"} entry per such reply.
     discarded: list[dict[str, Any]] = field(default_factory=list)
+    # "max_tokens" or "degenerate" when a step's reply and its one retry were both unusable
+    # (cut off at the token limit, or a loop with no tool call); "" otherwise. A truncated probe
+    # is left out of the behavioural rates and reported apart (probe/agent.py).
+    truncated: str = ""
+    # Steps whose first reply was unusable and were called again (attempt=1).
+    retries: list[int] = field(default_factory=list)
 
 
 def write_jsonl(path: str | Path, records: Iterable[Record]) -> None:

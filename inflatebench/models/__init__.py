@@ -9,9 +9,11 @@ from typing import Any, Protocol
 
 from inflatebench.schema import Message
 
-# Params that only distinguish cache entries (e.g. repeat 0, 1, 2 of the same prompt) or tell
-# the cache how to check the reply (accept_refusal); providers strip them before calling the API.
-KEY_ONLY_PARAMS = frozenset({"repeat", "accept_refusal"})
+# Params that only distinguish cache entries (e.g. repeat 0, 1, 2 of the same prompt, or
+# attempt 1, the one retry of an agent step whose reply was unusable) or tell the cache how to
+# check the reply (accept_refusal); providers strip them before calling the API. A normal call
+# never carries attempt, so its cache key is the same as before retries existed.
+KEY_ONLY_PARAMS = frozenset({"repeat", "attempt", "accept_refusal"})
 # The one per-call param every provider translates itself: `stop`, a list of stop sequences
 # that end the reply (not returned in its text). A provider that cannot stop there drops it,
 # and the caller must cope with text after the stop sequence (probe/agent.py does).

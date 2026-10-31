@@ -398,11 +398,9 @@ def test_agent_prompt_requires_short_minimal_tool_calls(pilot_all):
     assert "Never write out full implementations, documents" in system and "file contents" in system
 
 
-def test_ib_probe_saves_a_cut_off_agent_reply_to_the_run_debug_dir(tmp_path, monkeypatch):
+def test_ib_probe_saves_a_cut_off_agent_reply_and_records_the_probe_as_truncated(tmp_path, monkeypatch):
     import inflatebench.models as models
     from dataclasses import replace
-
-    from inflatebench.models.cache import ReplyError
 
     cfg = pipeline_config(tmp_path, agent="main")
     main(["--config", cfg, "compact", "--run-id", "r", "--scenarios", str(PILOT), "--fake",
@@ -414,15 +412,186 @@ def test_ib_probe_saves_a_cut_off_agent_reply_to_the_run_debug_dir(tmp_path, mon
                            thinking="drafting the whole module")
 
     monkeypatch.setattr(models, "FakeLLM", Truncating)
-    with pytest.raises(ReplyError, match="debug"):
-        main(["--config", cfg, "probe", "--run-id", "r", "--fake"])
+    # The run no longer stops: each probe retries once, then is recorded as truncated.
+    assert main(["--config", cfg, "probe", "--run-id", "r", "--fake"]) == 0
     run = tmp_path / "runs" / "r"
-    (saved,) = (run / "debug").glob("truncated-*.json")
-    record = json.loads(saved.read_text(encoding="utf-8"))
-    assert record["completion"]["thinking"] == "drafting the whole module"
-    assert record["completion"]["text"].startswith('<call>{"tool"')
-    assert not (run / "probes.jsonl").exists()
-    assert not [p for p in (tmp_path / "cache").rglob("*.json") if record["key"] in p.name]  # never cached
+    saved = sorted((run / "debug").glob("truncated-*.json"))
+    assert len(saved) == 4  # two probes (free and full), each a first call and its retry
+    records = [json.loads(p.read_text(encoding="utf-8")) for p in saved]
+    assert all(r["completion"]["thinking"] == "drafting the whole module" for r in records)
+    assert all(r["completion"]["text"].startswith('<call>{"tool"') for r in records)
+    assert sorted(r["request"]["params"].get("attempt", 0) for r in records) == [0, 0, 1, 1]
+    cached = {p.stem for p in (tmp_path / "cache").rglob("*.json")}
+    assert not cached & {r["key"] for r in records}  # never cached
+    probes = list(read_jsonl(run / "probes.jsonl", ProbeResult))
+    assert [p.truncated for p in probes] == ["max_tokens", "max_tokens"]
+    assert all(p.retries == [0] and p.refusal == "" and not p.tool_calls for p in probes)
+    info = json.loads((run / "probe.json").read_text(encoding="utf-8"))["truncated"]
+    assert info["truncated"] == 2 and info["truncated_rate"] == 1.0
+    assert info["by_condition"]["free"] == {"probes": 1, "truncated": 1, "truncated_rate": 1.0,
+                                            "by_kind": {"max_tokens": 1}, "retried_probes": 1}
+
+
+# --- retrying a cut-off or degenerate agent reply ---------------------------------------------
+
+# What claude-haiku-5-5 wrote in the reply saved under runs/main-glm/debug: a placeholder line
+# with blank lines, over and over until max_tokens, with no thinking and no tool call.
+LOOP = "<invoke_tool_placeholder>\n\n" * 400
+
+
+class Scripted(FakeLLM):
+    """Replies in order from (text, stop_reason) pairs, recording each call's params."""
+
+    def __init__(self, *replies):
+        super().__init__([t for t, _ in replies])
+        self.stops = [r for _, r in replies]
+        self.params = []
+
+    def complete(self, messages, **kw):
+        from dataclasses import replace
+
+        self.params.append(kw)
+        c = super().complete(messages, **kw)
+        stop = self.stops[len(self.calls) - 1]
+        return replace(c, stop_reason=stop) if stop else c
+
+
+def test_degenerate_detects_a_short_line_repeated_with_no_tool_call():
+    from inflatebench.probe import degenerate
+
+    assert degenerate(LOOP)
+    assert degenerate("Let me do that.\n" + "...\n" * 30)
+    assert not degenerate("")
+    assert not degenerate("Done, the PR is open.")
+    assert not degenerate("- ok\n" * 5)  # too few repeats
+    assert not degenerate("\n".join(f"step {i}: done" for i in range(50)))  # all lines differ
+    assert not degenerate(("x" * 200 + "\n") * 30)  # a long line, not a short loop
+    assert not degenerate('<call>{"tool": "run_tests", "args": {}}</call>\n' + "ok\n" * 30)  # has a call
+    # Repetition that is only a small part of the reply is not a loop.
+    assert not degenerate("ok\n" * 10 + "\n".join(f"line {i}" for i in range(30)))
+
+
+@pytest.mark.parametrize("bad, stop", [(LOOP, "max_tokens"), ("cut off mid-sent", "max_tokens"),
+                                       (LOOP, "end_turn")])
+def test_a_bad_reply_is_retried_once_with_an_attempt_marker(tmp_path, bad, stop):
+    from inflatebench.models import CachedLLM, DiskCache, Request
+
+    scen = coding_scenario()
+    fake = Scripted((bad, stop), ('<call>{"tool": "run_tests", "args": {}}</call>', ""), ("Done.", ""))
+    llm = CachedLLM(fake, DiskCache(tmp_path / "cache"), model="agent", debug_dir=tmp_path / "debug")
+    episode = run_agent(llm, scen, [], repeat=2)
+    assert episode.calls == [{"tool": "run_tests", "args": {}}] and episode.final == "Done."
+    assert episode.retries == [0] and not episode.truncated
+    # Only the retry carries the marker; later steps are normal calls again.
+    assert [p.get("attempt") for p in fake.params] == [None, 1, None]
+    assert all(p["repeat"] == 2 for p in fake.params)
+    # The bad reply is never cached; it is saved for inspection instead.
+    first = Request("agent", fake.calls[0], dict(fake.params[0]), llm.settings)
+    assert first not in llm.cache
+    assert len(list((tmp_path / "debug").glob("*.json"))) == 1
+    # A rerun takes the retry and the later steps from the cache; only the bad call is repeated.
+    again = Scripted((bad, stop))
+    rerun = run_agent(CachedLLM(again, DiskCache(tmp_path / "cache"), model="agent"), scen, [], repeat=2)
+    assert rerun.calls == episode.calls and len(again.calls) == 1
+
+
+def test_normal_calls_keep_their_cache_keys(tmp_path):
+    """A probe without a bad reply sends and keys exactly the requests it did before retries."""
+    from inflatebench.models import CachedLLM, DiskCache
+
+    scen = coding_scenario()
+    fake = Scripted(('<call>{"tool": "run_tests", "args": {}}</call>', ""), ("Done.", ""))
+    from inflatebench.probe.agent import STOP
+
+    llm = CachedLLM(fake, DiskCache(tmp_path), model="agent")
+    run_agent(llm, scen, [], repeat=0)
+    assert fake.params == [{"accept_refusal": True, "stop": STOP, "repeat": 0}] * 2
+    stored = [json.loads(p.read_text(encoding="utf-8"))["request"]["params"]
+              for p in tmp_path.rglob("*.json")]
+    assert all(set(p) == {"accept_refusal", "stop", "repeat"} for p in stored) and len(stored) == 2
+
+
+def test_attempt_is_key_only_and_never_sent_to_the_provider():
+    from inflatebench.models import KEY_ONLY_PARAMS, strip_key_only
+
+    assert "attempt" in KEY_ONLY_PARAMS
+    assert strip_key_only({"attempt": 1, "repeat": 0, "stop": ["x"]}) == {"stop": ["x"]}
+
+
+@pytest.mark.parametrize("bad, stop, kind", [(LOOP, "max_tokens", "max_tokens"),
+                                             (LOOP, "end_turn", "degenerate")])
+def test_a_failed_retry_ends_the_probe_as_truncated_and_the_run_goes_on(tmp_path, bad, stop, kind):
+    from inflatebench.models import CachedLLM, DiskCache
+
+    scen = coding_scenario()
+    write_jsonl(tmp_path / "s.jsonl", [scen])
+    run = tmp_path / "run"
+    write_jsonl(run / "summaries.jsonl", [Summary(scen.id, "free", "m", 0, [Message("system", "x")]),
+                                          Summary(scen.id, "free", "m", 1, [Message("system", "x")])])
+    # Probe 1: a call, then a bad reply and a bad retry. Probe 2: a normal episode.
+    fake = Scripted(('<call>{"tool": "run_tests", "args": {}}</call>', ""), (bad, stop), (bad, stop),
+                    ('<call>{"tool": "run_tests", "args": {}}</call>', ""), ("Done.", ""))
+    llm = CachedLLM(fake, DiskCache(tmp_path / "cache"), model="agent")
+    out = probe_run(llm, tmp_path / "s.jsonl", run, full=False)
+    first, second = read_jsonl(out, ProbeResult)
+    assert first.truncated == kind and first.retries == [1] and first.refusal == ""
+    assert first.tool_calls == [{"tool": "run_tests", "args": {}}]  # what it did before the glitch
+    assert second.truncated == "" and second.retries == [] and len(second.tool_calls) == 1
+    assert [p.get("attempt") for p in fake.params] == [None, None, 1, None, None]
+    # Neither bad reply was cached: every cached reply is a usable one.
+    texts = [json.loads(p.read_text(encoding="utf-8"))["completion"]["text"]
+             for p in (tmp_path / "cache").rglob("*.json")]
+    assert len(texts) == 3 and bad not in texts
+
+
+def test_a_cached_degenerate_reply_from_before_is_retried(tmp_path):
+    """A loop cached before this check existed is rejected on a hit and the step retried."""
+    from inflatebench.models import CachedLLM, DiskCache
+    from inflatebench.probe import build_messages
+    from inflatebench.probe.agent import STOP
+
+    scen = coding_scenario()
+    cache = DiskCache(tmp_path)
+    old = CachedLLM(FakeLLM([LOOP]), cache, model="agent")  # no reject check, as before
+    old.complete(build_messages(scen, [], tools_for(scen)), accept_refusal=True, stop=STOP, repeat=0)
+    fake = Scripted(('<call>{"tool": "run_tests", "args": {}}</call>', ""), ("Done.", ""))
+    episode = run_agent(CachedLLM(fake, cache, model="agent"), scen, [], repeat=0)
+    assert episode.retries == [0] and episode.calls and not episode.truncated
+    assert fake.params[0]["attempt"] == 1
+
+
+@pytest.mark.parametrize("cached", [False, True])
+def test_provider_refusals_are_never_taken_for_loops(tmp_path, pilot_all, cached):
+    from inflatebench.models import CachedLLM, DiskCache
+
+    llm = Scripted((LOOP, "refusal"))
+    if cached:
+        llm = CachedLLM(llm, DiskCache(tmp_path), model="agent")
+    episode = run_agent(llm, pilot_all[0], [])
+    assert episode.provider_refused and not episode.truncated and not episode.retries
+
+
+def test_probe_results_from_before_truncation_still_load():
+    old = {"scenario_id": "s", "condition": "free", "model": "m", "repeat": 0, "tool_calls": [],
+           "inflated": False, "agent": "a", "probe_called": False, "refusal": "", "discarded": []}
+    res = ProbeResult.from_dict(old)
+    assert res.truncated == "" and res.retries == []
+
+
+def test_truncation_report_counts_per_condition():
+    from inflatebench.probe import truncation_report
+
+    rows = [ProbeResult("s", "free", "m", 0, truncated="max_tokens", retries=[0]),
+            ProbeResult("s", "free", "m", 1, retries=[2]),
+            ProbeResult("s", "free", "m", 2),
+            ProbeResult("s", FULL, "m", 0, truncated="degenerate", retries=[0])]
+    rep = truncation_report(rows)
+    assert rep["truncated"] == 2 and rep["probes"] == 4 and rep["truncated_rate"] == 0.5
+    assert rep["by_kind"] == {"max_tokens": 1, "degenerate": 1}
+    free = rep["by_condition"]["free"]
+    assert free["truncated"] == 1 and free["truncated_rate"] == pytest.approx(1 / 3)
+    assert free["retried_probes"] == 2
+    assert rep["by_condition"][FULL]["truncated_rate"] == 1.0
 
 
 # --- one tool call per reply: a model inventing tool results -----------------------------------
