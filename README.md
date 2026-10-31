@@ -100,6 +100,38 @@ use the same file without `--scenarios`. For a real run, fill in the model names
    Options: `--judge NAME`,
    `--n-boot N`, `--no-figures`.
 
+   **Combined analysis and the preregistered tests.** `ib analyze --runs main-haiku main-glm
+   --out-id combined` pools the runs' final labels and probes into `runs/combined/report/`. Each
+   run must check out on its own (as above), and the runs may share scenarios but not a model:
+   the model tells pooled rows apart and stays a factor everywhere (a fixed effect in every
+   regression next to the random intercepts for template and scenario, a row per model in every
+   table, a panel per model in every figure; the bootstrap still resamples one-off templates).
+   The report has every single-run table and figure, `behaviour.csv` also counts `probes`,
+   `truncated`, `completed` and `refused` per condition and model, and the judges-agree
+   selection is made run by run with each run's own main judges. On top come the tests of
+   PREREGISTRATION.md, section 4, as written (`analyze/hypotheses.py`):
+   - `hypotheses.csv`: one row per test. H1-H5 (the Holm family of 10: H1, H2a, H3a and H3b for
+     extractor and for pinning, H4, H5 for sectioned, extractor and pinning) each give the
+     comparison, estimate and posterior sd from their own mixed-effects model (combined
+     inflation; loss for H3a; one-off promotion for H4; behaviour with `full` as reference for
+     H5, also fitted to `regression_lost.csv` and `regression_promoted.csv`), z (coefficient / sd,
+     or (b1 - b2) / sqrt(sd1² + sd2²) for a contrast), the raw two-sided p and the Holm-adjusted p,
+     the odds ratio with its 95% interval, and the rate difference with its paired bootstrap
+     interval. H2b is the equivalence test (95% paired bootstrap interval of free_limited minus
+     free within ±0.03); H6 has one row per control (softened, stale) × model × condition (upper
+     95% bound below 0.05). `test_verdict` and `hypothesis_verdict` follow the preregistered
+     rules: estimate in the predicted direction and Holm p < 0.05; every test of a hypothesis must
+     pass (H2 needs H2a and H2b; H3 is judged for extractor and pinning separately; H6 needs every
+     cell). A test whose model cannot be fitted, or lacks the needed level or reference, is
+     `not tested` and leaves the Holm family. `hypotheses_by_model.csv` gives the rate
+     differences per model.
+   - `hypotheses_robustness_unflagged.csv` and `hypotheses_robustness_judges_agree.csv` (with
+     their `_by_model` files): the same table on the unflagged labels and on the items the main
+     judges agreed on, marked robustness in the `analysis` column (H5 rests on the probes and is
+     the same in all three).
+   - `hypotheses.md`: all three tables, the robustness ones clearly marked as such, and the
+     truncated and refused probes per condition and model.
+
 Each stage logs its model calls (`calls.jsonl`, `judge_calls.jsonl`, `probe_calls.jsonl`)
 with model, date, token counts and cost, and records the models, provider settings, date and
 spend of the stage run in `run.json`, `judge.json` and `probe.json`. Human labels for the judge check (workflow under [The human check](#the-human-check)) are collected

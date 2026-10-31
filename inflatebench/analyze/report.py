@@ -87,6 +87,18 @@ def truncated_summary(probes: pd.DataFrame) -> dict[str, Any]:
     return one(probes) | {"by_condition": {c: one(g) for c, g in probes.groupby("condition", sort=True)}}
 
 
+def probe_counts(probes: pd.DataFrame) -> pd.DataFrame:
+    """Per condition and model: all probes, truncated ones (left out of the behavioural rates),
+    completed ones and refusals among them (counted as not inflated)."""
+    g = probes.assign(completed=~probes["truncated"].astype(bool),
+                      refused_done=probes["refused"].astype(bool) & ~probes["truncated"].astype(bool))
+    out = g.groupby(m.GROUP, as_index=False).agg(probes=("scenario_id", "size"),
+                                                 truncated=("truncated", "sum"),
+                                                 completed=("completed", "sum"),
+                                                 refused=("refused_done", "sum"))
+    return out.astype({"probes": int, "truncated": int, "completed": int, "refused": int})
+
+
 def regressions(items: pd.DataFrame, probes: pd.DataFrame | None) -> dict[str, pd.DataFrame | str]:
     """Item-level inflation and probe-level behaviour; a failed fit is reported, not raised."""
     jobs = {"items": items[m.inflation_eligible(items)].assign(inflated=m.any_inflation(items))}
@@ -111,11 +123,18 @@ def _records(df: pd.DataFrame) -> list[dict[str, Any]]:
 def analyze(labels: Iterable[Label], scenarios: Iterable[Scenario],
             probes: Iterable[ProbeResult] | None, out_dir: str | Path, judge: str = FINAL,
             n_boot: int = 2000, seed: int = 0, figures: bool = True,
-            judge_roles: dict[str, str] | None = None) -> dict[str, Any]:
+            judge_roles: dict[str, str] | None = None,
+            judges_agree: tuple[Any, list[Label], int, int] | None = None,
+            behaviour_counts: bool = False) -> dict[str, Any]:
     """Write CSV tables, regression tables, figures and summary.json; return the summary.
 
     judge_roles ({judge name: role}, from judge.json) names the panel's two main judges for the
     judges-agree robustness check; without it they are inferred from the labels.
+
+    judges_agree, when given, replaces that check's own selection: (main judges as reported,
+    the labels kept, items left out, invented rules left out), as the combined analysis selects
+    them run by run. behaviour_counts adds probe counts per condition and model (probes,
+    truncated, refused) to behaviour.csv.
     """
     out = Path(out_dir)
     (out / "figures").mkdir(parents=True, exist_ok=True)
@@ -140,7 +159,7 @@ def analyze(labels: Iterable[Label], scenarios: Iterable[Scenario],
                                "precision_recall": _records(pr)}
     # Robustness check: the same tables without flagged labels (a quote that stayed unverified,
     # or a label the item's type does not allow).
-    kept = [lab for lab in labels if not (lab.judge == judge and (lab.quote_flagged or lab.type_flagged))]
+    kept = m.unflagged(labels, judge)
     items_kept = m.item_frame(kept, scenarios, judge)
     rates_kept = inflation_rates(items_kept, n_boot, seed)
     pr_kept = precision_recall(items_kept, m.invented_frame(kept, judge), n_boot, seed)
@@ -152,17 +171,20 @@ def analyze(labels: Iterable[Label], scenarios: Iterable[Scenario],
                                        "precision_recall": _records(pr_kept)}
     # Robustness check: only items on which the two main judges agreed (no tie-broken item), and
     # only invented rules both listed.
-    pair = m.main_judges(labels, judge_roles)
-    if pair is None:
+    if judges_agree is None:
+        pair = m.main_judges(labels, judge_roles)
+        if pair is not None:
+            judges_agree = (list(pair), *m.judges_agree(labels, judge, *pair))
+    if judges_agree is None:
         summary["robustness_judges_agree"] = {"note": "skipped: labels from two main judges are needed"}
     else:
-        agreed, items_out, invented_out = m.judges_agree(labels, judge, *pair)
+        pair, agreed, items_out, invented_out = judges_agree
         items_agreed = m.item_frame(agreed, scenarios, judge)
         rates_agreed = inflation_rates(items_agreed, n_boot, seed)
         pr_agreed = precision_recall(items_agreed, m.invented_frame(agreed, judge), n_boot, seed)
         rates_agreed.to_csv(out / "inflation_rates_judges_agree.csv", index=False)
         pr_agreed.to_csv(out / "precision_recall_judges_agree.csv", index=False)
-        summary["robustness_judges_agree"] = {"main_judges": list(pair),
+        summary["robustness_judges_agree"] = {"main_judges": pair,
                                               "excluded_items": items_out,
                                               "excluded_invented": invented_out,
                                               "n_items": len(items_agreed),
@@ -171,6 +193,8 @@ def analyze(labels: Iterable[Label], scenarios: Iterable[Scenario],
     beh = None
     if probe_df is not None and len(probe_df):
         beh = behaviour_rates(probe_df, n_boot, seed)
+        if behaviour_counts:
+            beh = beh.merge(probe_counts(probe_df), on=m.GROUP, how="outer")
         beh.to_csv(out / "behaviour.csv", index=False)
         summary["behaviour"] = _records(beh)
         summary["truncated_probes"] = truncated_summary(probe_df)
@@ -247,14 +271,26 @@ def analyze_run(run_dir: str | Path, scenarios_path: str | Path, **kw: Any) -> d
     (check_coverage).
     """
     run_dir = Path(run_dir)
+    labels, scenarios, probes, roles = load_run(run_dir, scenarios_path)
+    if roles is not None and "judge_roles" not in kw:
+        kw["judge_roles"] = roles
+    return analyze(labels, scenarios, probes, run_dir / "report", **kw)
+
+
+def load_run(run_dir: str | Path, scenarios_path: str | Path
+             ) -> tuple[list[Label], list[Scenario], list[ProbeResult] | None, dict[str, str] | None]:
+    """A run's labels, scenarios, probes (None without probes.jsonl) and judge roles (None
+    without judge.json), checked against summaries.jsonl when the run has one (check_coverage)."""
+    run_dir = Path(run_dir)
     probes_path = run_dir / "probes.jsonl"
     probes = list(read_jsonl(probes_path, ProbeResult)) if probes_path.exists() else None
     labels = list(read_jsonl(run_dir / "labels.jsonl", Label))
     scenarios = list(read_jsonl(scenarios_path, Scenario))
-    if (run_dir / "judge.json").exists() and "judge_roles" not in kw:
+    roles = None
+    if (run_dir / "judge.json").exists():
         info = json.loads((run_dir / "judge.json").read_text(encoding="utf-8"))
-        kw["judge_roles"] = {j["name"]: j["role"] for j in info.get("judges", [])}
+        roles = {j["name"]: j["role"] for j in info.get("judges", [])}
     if (run_dir / "summaries.jsonl").exists():
         # The panel's final labels cover every item; a single judge's (--judge) may not.
         check_coverage(read_jsonl(run_dir / "summaries.jsonl", Summary), scenarios, labels, probes)
-    return analyze(labels, scenarios, probes, run_dir / "report", **kw)
+    return labels, scenarios, probes, roles

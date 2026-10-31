@@ -402,6 +402,12 @@ def _analyze(args: argparse.Namespace) -> int:
     from inflatebench.analyze import analyze_run
 
     cfg = load_config(args.config)
+    if args.runs is not None:
+        return _analyze_combined(cfg, args)
+    if args.run_id is None:
+        raise SystemExit("ib analyze: pass --run-id, or --runs with --out-id")
+    if args.out_id is not None:
+        raise SystemExit("ib analyze: --out-id goes with --runs")
     run_dir = _run_dir(cfg, args, "labels.jsonl")
     scenarios = _scenarios_for(cfg, args, run_dir)
     try:
@@ -412,6 +418,35 @@ def _analyze(args: argparse.Namespace) -> int:
     probes = "with" if "behaviour" in summary else "without"
     print(f"wrote report for {summary['n_items']} items over {summary['n_scenarios']} scenarios "
           f"({probes} probes) to {run_dir / 'report'}")
+    return 0
+
+
+def _analyze_combined(cfg: dict[str, Any], args: argparse.Namespace) -> int:
+    """ib analyze --runs A B --out-id C: the pooled report and hypothesis tests -> runs/C/report/."""
+    from inflatebench.analyze.combined import analyze_runs
+
+    if args.run_id is not None:
+        raise SystemExit("ib analyze: pass either --run-id or --runs, not both")
+    if not args.out_id:
+        raise SystemExit("ib analyze: --runs needs --out-id (the folder under runs/ for the report)")
+    if len(set(args.runs)) != len(args.runs) or len(args.runs) < 2:
+        raise SystemExit("ib analyze: --runs needs at least two different run ids")
+    if args.out_id in args.runs:
+        raise SystemExit("ib analyze: --out-id must not be one of --runs (it would overwrite that run's report)")
+    runs = {}
+    for run_id in args.runs:
+        run_dir = _run_dir(cfg, argparse.Namespace(run_id=run_id, command=args.command), "labels.jsonl")
+        runs[run_id] = (run_dir, _scenarios_for(cfg, args, run_dir))
+    out = Path(cfg["paths"]["runs"]) / args.out_id / "report"
+    try:
+        summary = analyze_runs(runs, out, judge=args.judge, n_boot=args.n_boot, seed=args.seed,
+                               figures=not args.no_figures)
+    except ValueError as e:
+        raise SystemExit(f"ib analyze: {e}") from None
+    verdicts = summary["hypotheses"]["confirmatory"]["verdicts"]
+    print(f"wrote combined report for {summary['n_items']} items over {summary['n_scenarios']} scenarios "
+          f"from runs {', '.join(args.runs)} to {out}")
+    print("hypotheses: " + "; ".join(f"{h} {v}" for h, v in verdicts.items()))
     return 0
 
 
@@ -654,8 +689,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-batch", action="store_true",
                    help="single calls (the default here: ib probe always makes single calls)")
 
-    p = sub.add_parser("analyze", help="write runs/<run_id>/report/")
-    p.add_argument("--run-id", required=True)
+    p = sub.add_parser("analyze", help="write runs/<run_id>/report/ (or, with --runs, a combined report)")
+    p.add_argument("--run-id", default=None, help="the run to analyse")
+    p.add_argument("--runs", nargs="+", default=None, metavar="RUN_ID",
+                   help="pool these runs (model kept as a factor) and add the preregistered "
+                        "hypothesis tests; needs --out-id")
+    p.add_argument("--out-id", default=None, help="with --runs: write runs/<out_id>/report/")
     p.add_argument("--scenarios", default=None, help=scen_help)
     p.add_argument("--judge", default="final", help="whose labels to analyse (default: the panel's final)")
     p.add_argument("--n-boot", type=int, default=2000, help="bootstrap resamples")
