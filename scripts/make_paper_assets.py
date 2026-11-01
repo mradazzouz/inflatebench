@@ -1,13 +1,17 @@
 """Turn runs/<run_id>/report/ into LaTeX tables, macros and figures under paper/generated/.
 
     python scripts/make_paper_assets.py RUN_ID [--config config.yaml] [--out paper/generated]
+                                               [--no-titles]
 
 RUN_ID is a single run or a combined analysis (ib analyze --runs ... --out-id combined); for a
 combined one the preregistered hypothesis tables are written too (hypotheses, hypotheses_by_model,
-verdicts) and the forest plot is copied with the other figures, each as PDF and PNG.
+verdicts) and the forest plot is copied with the other figures, each as PDF and PNG. With
+--no-titles the figures are drawn again from the report's tables without their in-figure title
+(the paper's captions carry it); otherwise they are copied from the report as they are.
 
 Every table is a bare tabular (no float, no caption), so the paper sets captions and placement.
-Rates are percentages with their 95% bootstrap interval. The label tables are written from
+Rates are percentages with their 95% bootstrap interval; models appear under their
+display names (plots.MODEL_DISPLAY), as in the figures. The label tables are written from
 inflatebench/judge/rubric.py, so the appendix uses exactly the judge's definitions.
 """
 
@@ -26,7 +30,9 @@ import pandas as pd
 import yaml
 
 from inflatebench.analyze.metrics import CONTROL_TYPES, INFLATING
-from inflatebench.analyze.plots import FOREST_ROWS, conditions_in, display
+from inflatebench.analyze.hypotheses import EQUIVALENCE_MARGIN
+from inflatebench.analyze.plots import FOREST_ROWS, conditions_in, display, model_display
+from inflatebench.analyze.report import draw_figures
 from inflatebench.judge.rubric import ALLOWED_LABELS, EXPECTED, LABEL_DEFINITIONS, PRECEDENCE
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -77,7 +83,7 @@ def _ordered(df: pd.DataFrame) -> list[tuple[str, str]]:
 
 
 def _row_head(model: str, condition: str, many_models: bool) -> list[str]:
-    return ([tex(model)] if many_models else []) + [tex(display(condition))]
+    return ([tex(model_display(model))] if many_models else []) + [tex(display(condition))]
 
 
 def rates_table(rates: pd.DataFrame, types: Sequence[str]) -> str:
@@ -144,9 +150,16 @@ def _comparison(test: str) -> str:
     return f"{text} ({tex(outcome)})" if outcome else text
 
 
+# Below this a p-value is shown as a bound: a double reaches only about 1e-308, and a p that
+# small has underflowed to 0 (or a subnormal) in the normal tail, so its digits mean nothing.
+P_FLOOR = 1e-300
+
+
 def p_value(p: Any) -> str:
     if _missing(p):
         return "--"
+    if p < P_FLOOR:
+        return "$<10^{-300}$"
     if p < 0.001:
         mant, exp = f"{p:.1e}".split("e")
         return f"${mant}\\times 10^{{{int(exp)}}}$"
@@ -177,7 +190,7 @@ def hypotheses_by_model_table(bm: pd.DataFrame) -> str:
             for r in bm.itertuples()}
     rows = [[tex(t), _comparison(t)] + [cell.get((t, m), "--") for m in models]
             for t in order if t in set(bm["test"])]
-    return tabular(["Test", "Comparison"] + [tex(m) for m in models], rows, "ll" + "r" * len(models))
+    return tabular(["Test", "Comparison"] + [tex(model_display(m)) for m in models], rows, "ll" + "r" * len(models))
 
 
 def verdicts_table(summary: dict[str, Any]) -> str | None:
@@ -224,8 +237,10 @@ def macros(summary: dict[str, Any], run_id: str, run_info: dict[str, Any]) -> st
     return "\n".join(lines) + "\n"
 
 
-def make_assets(report: Path, out: Path, run_id: str, run_info: dict[str, Any] | None = None) -> list[Path]:
-    """Write tables, macros and figures for one report directory; return the files written."""
+def make_assets(report: Path, out: Path, run_id: str, run_info: dict[str, Any] | None = None,
+                titles: bool = True) -> list[Path]:
+    """Write tables, macros and figures for one report directory; return the files written.
+    titles=False draws the figures again from the report's tables without in-figure titles."""
     if not (report / "summary.json").exists():
         raise FileNotFoundError(f"{report / 'summary.json'} not found; run ib analyze first")
     # Start clean, so nothing from an earlier run stays behind.
@@ -259,9 +274,26 @@ def make_assets(report: Path, out: Path, run_id: str, run_info: dict[str, Any] |
     for name, text in label_tables().items():
         write(f"tables/{name}.tex", text)
     write("macros.tex", macros(summary, run_id, run_info or {}))
-    for fig in sorted((*(report / "figures").glob("*.pdf"), *(report / "figures").glob("*.png"))):
-        written.append(Path(shutil.copy2(fig, out / "figures" / fig.name)))
+    if titles:
+        for fig in sorted((*(report / "figures").glob("*.pdf"), *(report / "figures").glob("*.png"))):
+            written.append(Path(shutil.copy2(fig, out / "figures" / fig.name)))
+    elif any((report / "figures").glob("*.png")):  # the report was drawn with figures
+        written += untitled_figures(report, out / "figures")
     return written
+
+
+def untitled_figures(report: Path, fig_dir: Path) -> list[Path]:
+    """The report's figures drawn again from its tables, without in-figure titles; the forest
+    plot only when the report has it (a combined analysis)."""
+    def read(name: str) -> pd.DataFrame | None:
+        return pd.read_csv(report / name) if (report / name).exists() else None
+
+    hyp = None
+    if (report / "figures" / "hypotheses_forest.png").exists():
+        hyp = (read("hypotheses.csv"), read("hypotheses_by_model.csv"), EQUIVALENCE_MARGIN)
+    pngs = draw_figures(fig_dir, read("inflation_rates.csv"), read("precision_recall.csv"),
+                        read("behaviour.csv"), hyp, titles=False)
+    return sorted([*pngs, *(p.with_suffix(".pdf") for p in pngs)])
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -270,6 +302,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     p.add_argument("--config", default=str(ROOT / "config.yaml"), help="path to config.yaml")
     p.add_argument("--run-dir", default=None, help="run directory (default: paths.runs/<run_id>)")
     p.add_argument("--out", default=str(ROOT / "paper" / "generated"), help="output directory")
+    p.add_argument("--no-titles", action="store_true",
+                   help="draw the figures without their in-figure title (the paper's captions "
+                        "carry it); the report's own figures keep theirs")
     args = p.parse_args(argv)
     if args.run_dir:
         run_dir = Path(args.run_dir)
@@ -279,7 +314,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     run_json = run_dir / "run.json"
     run_info = json.loads(run_json.read_text(encoding="utf-8")) if run_json.exists() else {}
     try:
-        written = make_assets(run_dir / "report", Path(args.out), args.run_id, run_info)
+        written = make_assets(run_dir / "report", Path(args.out), args.run_id, run_info,
+                              titles=not args.no_titles)
     except FileNotFoundError as e:
         print(f"make_paper_assets: {e}", file=sys.stderr)
         return 1

@@ -18,7 +18,7 @@ import pandas as pd
 from inflatebench.analyze import hypotheses as hy
 from inflatebench.analyze import metrics as m
 from inflatebench.analyze import plots
-from inflatebench.analyze.report import _records, analyze, load_run
+from inflatebench.analyze.report import FIGURE_TITLES, _records, analyze, load_run
 from inflatebench.judge.judges import FINAL
 from inflatebench.schema import Label, ProbeResult, Scenario
 
@@ -137,7 +137,7 @@ def analyze_runs(runs: Mapping[str, tuple[str | Path, str | Path]], out_dir: str
     if figures:
         conf = results[CONFIRMATORY]
         plots.hypotheses_forest(conf["table"], conf["by_model"], out / "figures" / "hypotheses_forest.png",
-                                margin=hy.EQUIVALENCE_MARGIN)
+                                margin=hy.EQUIVALENCE_MARGIN, title=FIGURE_TITLES["hypotheses_forest"])
         summary["figures"] = sorted(p.name for p in (out / "figures").glob("*.png"))
     if agree is None:
         summary["hypotheses"][ROBUST_AGREE] = {"note": "skipped: labels from two main judges are needed"}

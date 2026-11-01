@@ -120,6 +120,36 @@ def _records(df: pd.DataFrame) -> list[dict[str, Any]]:
     return json.loads(df.to_json(orient="records"))
 
 
+FIGURE_TITLES = {"inflation_by_type": "Inflation rate by type",
+                 "controls_and_loss": "Control errors and loss",
+                 "precision": "Constraint precision by condition",
+                 "behaviour": "Behavioural inflation",
+                 "hypotheses_forest": "Preregistered rate differences (H1–H5)"}
+
+
+def draw_figures(fig_dir: Path, rates: pd.DataFrame, pr: pd.DataFrame, beh: pd.DataFrame | None,
+                 hypotheses: tuple[pd.DataFrame, pd.DataFrame, float] | None = None,
+                 titles: bool = True) -> list[Path]:
+    """The report's figures from its tables (and the forest plot from the confirmatory
+    hypothesis tables and the equivalence margin, when given); titles=False leaves the
+    in-figure titles out, for the paper, whose captions carry them."""
+    def title(name: str) -> str | None:
+        return FIGURE_TITLES[name] if titles else None
+
+    out = [plots.rates_by_type(rates, m.INFLATING, fig_dir / "inflation_by_type.png",
+                               title("inflation_by_type")),
+           plots.rates_by_type(rates, tuple(m.CONTROL_TYPES), fig_dir / "controls_and_loss.png",
+                               title("controls_and_loss"), small_note=True),
+           plots.precision(pr, fig_dir / "precision.png", title("precision"))]
+    if beh is not None:
+        out.append(plots.behaviour(beh, fig_dir / "behaviour.png", title("behaviour")))
+    if hypotheses is not None:
+        table, by_model, margin = hypotheses
+        out.append(plots.hypotheses_forest(table, by_model, fig_dir / "hypotheses_forest.png",
+                                           margin=margin, title=title("hypotheses_forest")))
+    return out
+
+
 def analyze(labels: Iterable[Label], scenarios: Iterable[Scenario],
             probes: Iterable[ProbeResult] | None, out_dir: str | Path, judge: str = FINAL,
             n_boot: int = 2000, seed: int = 0, figures: bool = True,
@@ -213,13 +243,7 @@ def analyze(labels: Iterable[Label], scenarios: Iterable[Scenario],
         # Start clean, so no figure from an earlier analysis (or an earlier name) stays behind.
         for old in (*fig.glob("*.png"), *fig.glob("*.pdf")):
             old.unlink()
-        plots.rates_by_type(rates, m.INFLATING, fig / "inflation_by_type.png",
-                            "Inflation rate by type")
-        plots.rates_by_type(rates, tuple(m.CONTROL_TYPES), fig / "controls_and_loss.png",
-                            "Control errors and loss")
-        plots.precision(pr, fig / "precision.png")
-        if beh is not None:
-            plots.behaviour(beh, fig / "behaviour.png")
+        draw_figures(fig, rates, pr, beh)
         summary["figures"] = sorted(p.name for p in fig.glob("*.png"))
 
     (out / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
