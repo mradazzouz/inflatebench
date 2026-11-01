@@ -14,12 +14,13 @@ one-off templates.
   \label{tab:inflation}
 \end{table}
 
-\begin{figure}[t]
+\begin{figure*}[t]
   \centering
-  \genfigure{inflation_by_type.png}
-  \caption{Inflation rate by type and condition.}
+  \genfigure{inflation_by_type.pdf}
+  \caption{Inflation rate by type and condition (\% of eligible items, 95\% bootstrap
+  interval), one panel per model.}
   \label{fig:inflation}
-\end{figure}
+\end{figure*}
 
 \todo{Describe Table~\ref{tab:inflation} and Figure~\ref{fig:inflation}.}
 
@@ -40,7 +41,16 @@ one-off templates.
   \label{tab:behaviour}
 \end{table}
 
-\todo{Describe Table~\ref{tab:behaviour}.}
+\begin{figure}[t]
+  \centering
+  \genfigure{behaviour.pdf}
+  \caption{Top: share of probes acting on inflation per condition, the full-history baseline
+  included. Bottom: compaction-induced behavioural inflation (condition minus full history, in
+  percentage points, paired 95\% interval); the line marks no difference.}
+  \label{fig:behaviour}
+\end{figure}
+
+\todo{Describe Table~\ref{tab:behaviour} and Figure~\ref{fig:behaviour}.}
 
 \subsection{Do fixes trade loss for inflation? (RQ3)}
 
@@ -53,9 +63,10 @@ one-off templates.
 
 \begin{figure}[t]
   \centering
-  \genfigure[0.7\linewidth]{precision_recall.png}
-  \caption{Constraint precision against recall.}
-  \label{fig:precision-recall}
+  \genfigure{precision.pdf}
+  \caption{Constraint precision by condition (95\% interval). Recall and loss, stated under each
+  panel, vary little across conditions; Table~\ref{tab:precision-recall} gives them per condition.}
+  \label{fig:precision}
 \end{figure}
 
 \todo{Describe the trade-off.}
@@ -70,6 +81,32 @@ one-off templates.
 \end{table}
 
 \todo{Describe cue, length and position effects.}
+
+\subsection{Preregistered hypotheses}
+
+\begin{table*}[t]
+  \centering\small
+  \gentable{hypotheses}
+  \caption{Preregistered tests H1--H5 (Holm family of ten) and the H2b equivalence test, pooled
+  over models: rate difference in percentage points with its 95\% paired bootstrap interval,
+  odds ratio from the mixed-effects regression, Holm-adjusted $p$ and verdict.}
+  \label{tab:hypotheses}
+\end{table*}
+
+\begin{figure*}[t]
+  \centering
+  \genfigure{hypotheses_forest.pdf}
+  \caption{Rate differences of the preregistered tests, pooled and per model, with 95\% paired
+  bootstrap intervals. The shaded band on the H2b row is the $\pm 3$-point equivalence margin.}
+  \label{fig:hypotheses}
+\end{figure*}
+
+\begin{table}[t]
+  \centering\small
+  \gentable{verdicts}
+  \caption{Verdict per hypothesis in the confirmatory and the two robustness analyses.}
+  \label{tab:verdicts}
+\end{table}
 
 \subsection{Robustness}
 
