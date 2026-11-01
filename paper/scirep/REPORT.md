@@ -32,11 +32,12 @@ The script writes `paper/scirep/build/inflatebench-scirep.zip`. It does the foll
 
 1. Checks the abstract against `abstract.txt`.
 2. Builds with `latexmk` and stops on any undefined reference or citation, or a missing figure.
-3. Test-compiles the zip's own file set in a scratch directory with `pdflatex` and the shipped `.bbl`, without BibTeX, as a journal or arXiv would.
+3. Test-compiles the zip's own file set in a scratch directory twice: with `pdflatex` and the shipped `.bbl` (as arXiv does), and with `pdflatex` + BibTeX (as Overleaf and journal systems may). Each time it checks that there are no undefined citations and that `main.bbl` has an entry for every cited key.
 4. Checks that exactly the figures named by `\includegraphics` were loaded.
 
-The zip holds 14 files:
+The zip holds 16 files:
 - `main.tex`, `supplementary.tex` and `main.bbl`
+- `references.bib` and `naturemag-doi.bst`. Without them, a build that runs BibTeX overwrites `main.bbl` with an empty file, and the reference list disappears
 - `wlscirep.cls`, plus the three `jabbrv` files the class loads
 - `figures/` with `inflation_by_type.pdf`, `hypotheses_forest.pdf`, `behaviour.pdf`, `controls_and_loss.pdf` and `precision.pdf`
 - `tables/` with `hypotheses.tex` and `hypotheses_by_model.tex`
