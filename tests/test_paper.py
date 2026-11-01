@@ -4,6 +4,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from inflatebench.analyze.report import analyze
@@ -161,6 +162,50 @@ def test_tex_escapes_and_formats():
     assert assets.pct(float("nan")) == "--"
     assert assets.pct(-0.05, -0.1, 0.0, signed=True) == "$-$5.0 {\\scriptsize[$-$10.0, +0.0]}"
     assert assets.term_name("C(condition, Treatment('free'))[T.pinning]") == "condition: pinning"
+    assert assets.p_value(0.0) == "$<10^{-300}$"
+    assert assets.p_value(5e-324) == "$<10^{-300}$"  # subnormal: underflowed too
+    assert assets.p_value(1.5e-30) == "$1.5\\times 10^{-30}$"
+    assert assets.p_value(0.0123) == "0.012"
+    assert assets.p_value(float("nan")) == "--"
+
+
+def test_tables_use_model_display_names():
+    rates = pd.DataFrame({"model": ["claude-haiku-5-5", "glm-5.3-flash"], "condition": "free",
+                          "type": "promoted", "rate": 0.1, "lo": 0.05, "hi": 0.2})
+    table = assets.rates_table(rates, ("promoted",))
+    assert "Claude Haiku 5.5 & free" in table and "GLM-5.3-Flash & free" in table
+    assert "claude-haiku" not in table and "glm-5.3-flash" not in table
+    bm = pd.DataFrame({"test": "H1", "model": ["claude-haiku-5-5", "glm-5.3-flash"],
+                       "rate_diff": 0.1, "rate_diff_lo": 0.0, "rate_diff_hi": 0.2})
+    assert "Test & Comparison & Claude Haiku 5.5 & GLM-5.3-Flash" in assets.hypotheses_by_model_table(bm)
+
+
+def test_paper_figures_without_titles(tmp_path, pilot):
+    import matplotlib.pyplot as plt
+    from inflatebench.analyze import plots
+
+    run = _report(tmp_path, pilot)
+    titles = {}
+    real = plots.save
+
+    def save(fig, path):
+        titles[Path(path).stem] = fig._suptitle.get_text() if fig._suptitle else None
+        return real(fig, path)
+
+    plots.save = save
+    try:
+        out = tmp_path / "generated"
+        assert assets.main(["r1", "--run-dir", str(run), "--out", str(out), "--no-titles"]) == 0
+    finally:
+        plots.save = real
+    figures = ["behaviour", "controls_and_loss", "inflation_by_type", "precision"]
+    assert titles == {f: None for f in figures}
+    assert sorted(p.name for p in (out / "figures").iterdir()) == sorted(
+        f"{f}.{ext}" for f in figures for ext in ("pdf", "png"))
+    # The report's own figures keep their titles (unchanged by the paper's run).
+    report_png = plt.imread(run / "report" / "figures" / "precision.png")
+    paper_png = plt.imread(out / "figures" / "precision.png")
+    assert report_png.shape != paper_png.shape or (report_png != paper_png).any()
 
 
 def _latexmk_runs() -> bool:

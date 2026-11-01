@@ -493,7 +493,7 @@ Tables, numbers and figures come from a run's report:
 
 ```sh
 ib analyze --run-id main                          # runs/main/report/
-python scripts/make_paper_assets.py main          # -> paper/generated/
+python scripts/make_paper_assets.py main --no-titles   # -> paper/generated/
 cd paper && latexmk -pdf main.tex                 # -> paper/main.pdf
 ```
 
@@ -507,7 +507,11 @@ verdict), `hypotheses_by_model` and `verdicts` (confirmatory and robustness), co
 the figures' display names),
 `paper/generated/macros.tex` (`\ibRunId`, `\ibNScenarios`, `\ibNItems`, flag rates and so on),
 the label tables from `judge/rubric.py`, and copies the figures (PDF, which the paper includes,
-and PNG) to `paper/generated/figures/`. It empties the tables and figures folders first, so nothing from an
+and PNG) to `paper/generated/figures/`. With `--no-titles` it draws the figures again from the
+report's tables without the in-figure title, which the paper's captions carry instead; the
+report's own figures keep their titles. Tables and figures name the models `Claude Haiku 5.5`
+and `GLM-5.3-Flash` instead of their API ids (`MODEL_DISPLAY` in `analyze/plots.py`), and a
+Holm p-value that underflows to 0 is written as $<10^{-300}$. It empties the tables and figures folders first, so nothing from an
 earlier run stays. Any missing asset shows as a grey placeholder box, so the paper builds
 before a run exists. `paper/generated/` and the build outputs are gitignored. A LaTeX
 distribution with `latexmk` is needed (on Debian or Ubuntu: `texlive-latex-recommended`,

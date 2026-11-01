@@ -13,8 +13,10 @@ Conventions shared by every figure:
 
 from __future__ import annotations
 
+import math
 import textwrap
 from contextlib import contextmanager
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Iterator, Sequence
 
@@ -39,6 +41,8 @@ COLORS = {"free": "#2a78d6", "free_limited": "#74acf2", "sectioned": "#c2481d",
           "pinning": "#e87ba4", "full": "#8a8984"}
 EXTRA = ("#3d3c39", "#b5b4ae")  # conditions outside the design, should any appear
 TYPE_DISPLAY = {"request_promoted": "request promoted"}
+# Model names as the paper writes them, keyed by API id; any other model keeps its id.
+MODEL_DISPLAY = {"claude-haiku-5-5": "Claude Haiku 5.5", "glm-5.3-flash": "GLM-5.3-Flash"}
 INK, INK_2, GRID = "#0b0b0b", "#52514e", "#e4e3df"
 FULL_WIDTH, COLUMN_WIDTH = 6.8, 3.3  # inches
 # Points at the figure's own size. 8.5 so that text stays >= 8 pt when a 6.8 in figure is set at
@@ -61,6 +65,10 @@ RC = {
 
 def display(condition: str) -> str:
     return DISPLAY.get(condition, condition.replace("_", " "))
+
+
+def model_display(model: str) -> str:
+    return MODEL_DISPLAY.get(str(model), str(model))
 
 
 def conditions_in(df: pd.DataFrame) -> list[str]:
@@ -183,11 +191,14 @@ def save(fig: plt.Figure, path: str | Path) -> Path:
     return png
 
 
-def _legend_below(fig: plt.Figure, handles: list[Any], ncol: int) -> None:
-    """The legend in its own row under the panels (constrained layout keeps it off the axes)."""
+def _legend_below(fig: plt.Figure, handles: list[Any], ncol: int, note: str | None = None) -> None:
+    """The legend in its own row under the panels (constrained layout keeps it off the axes);
+    a note, if any, sits right above its entries as the legend's title."""
     if handles:
-        fig.legend(handles=handles, loc="outside lower center", ncol=ncol, frameon=False,
-                   handlelength=1.2, handletextpad=0.4, columnspacing=1.0)
+        leg = fig.legend(handles=handles, loc="outside lower center", ncol=ncol, frameon=False,
+                         handlelength=1.2, handletextpad=0.4, columnspacing=1.0, title=note,
+                         title_fontsize=FONT)
+        leg.get_title().set_color(INK_2)
 
 
 def _condition_handles(conds: Sequence[str], colors: dict[str, str]) -> list[Patch]:
@@ -231,12 +242,21 @@ def _models(df: pd.DataFrame) -> list[str]:
 
 def _panel_title(ax: plt.Axes, model: str, many: bool) -> None:
     if many:
-        ax.set_title(model, loc="center", color=INK, pad=4)
+        ax.set_title(model_display(model), loc="center", color=INK, pad=4)
+
+
+def _title(fig: plt.Figure, title: str | None) -> None:
+    """The figure's title, top left; None leaves it out (the paper puts it in the caption)."""
+    if title:
+        fig.suptitle(title, x=0.01, ha="left", color=INK)
 
 
 def rates_by_type(rates: pd.DataFrame, types: Sequence[str], path: str | Path,
-                  title: str) -> Path:
-    """Grouped bars: one group per type, one bar per condition, one panel per model."""
+                  title: str | None, small_note: bool = False) -> Path:
+    """Grouped bars: one group per type, one bar per condition, one panel per model.
+
+    small_note adds a line under the panels when some bar is too short to see (below about 3%
+    of the axis height, say 1% on a 0-40% axis), so a missing bar is not read as a zero."""
     rates = rates[rates["type"].isin(types)]
     models, conds = _models(rates), conditions_in(rates)
     colors = condition_colors(conds)
@@ -264,12 +284,26 @@ def rates_by_type(rates: pd.DataFrame, types: Sequence[str], path: str | Path,
             _percent_axis(ax, top)
             _panel_title(ax, model, len(models) > 1)
         axes[0][0].set_ylabel("% of eligible items")
-        fig.suptitle(title, x=0.01, ha="left", color=INK)
-        _legend_below(fig, _condition_handles(conds, colors), ncol=min(len(conds), 4))
+        _title(fig, title)
+        note = _small_bars_note(rates["rate"], top) if small_note else None
+        _legend_below(fig, _condition_handles(conds, colors), ncol=min(len(conds), 4), note=note)
     return save(fig, path)
 
 
-def precision(pr: pd.DataFrame, path: str | Path) -> Path:
+def _small_bars_note(rate: pd.Series, top: float) -> str | None:
+    """'Bars below 1% are too short to see; ...' when a bar is under 3% of the axis height (the
+    threshold rounded down to one significant digit), else None."""
+    thr = 0.03 * top
+    digits = -int(np.floor(np.log10(100 * thr)))
+    shown = np.floor(100 * thr * 10 ** digits) / 10 ** digits
+    if not (rate.dropna() < shown / 100).any():
+        return None
+    return (f"Bars below {shown:.{max(digits, 0)}f}% may not be visible; the table gives every "
+            "rate.")
+
+
+def precision(pr: pd.DataFrame, path: str | Path,
+              title: str | None = "Constraint precision by condition") -> Path:
     """Constraint precision per condition (bars, 95% intervals), one panel per model; recall and
     loss, near-constant, are stated in a note under each panel instead of being plotted."""
     models, conds = _models(pr), conditions_in(pr)
@@ -290,31 +324,50 @@ def precision(pr: pd.DataFrame, path: str | Path) -> Path:
             _panel_title(ax, model, len(models) > 1)
             ax.set_xlabel(_recall_note(sub), color=INK_2, labelpad=4)
         axes[0][0].set_ylabel("constraint precision (%)")
-        fig.suptitle("Constraint precision by condition", x=0.01, ha="left", color=INK)
+        _title(fig, title)
     return save(fig, path)
 
 
 def _recall_note(sub: pd.DataFrame) -> str:
-    """'recall 98-100%, loss 0-2%' over the panel's conditions (one value when they agree)."""
-    def span(s: pd.Series) -> str:
-        s = (100 * s.dropna()).round(0)
-        if s.empty:
-            return "--"
-        lo, hi = int(s.min()), int(s.max())
-        return f"{lo}%" if lo == hi else f"{lo}–{hi}%"
+    """'recall ≥ 99.9%, loss ≤ 0.1%' over the panel's conditions: the lowest recall rounded
+    down and the highest loss rounded up to one decimal, so each bound holds exactly ('recall
+    100%' and 'loss 0%' only when every condition is exactly there)."""
+    recall, loss = sub["recall"].dropna(), sub["loss_rate"].dropna()
+    if recall.empty:
+        r = "recall --"
+    elif recall.min() >= 1:
+        r = "recall 100%"
+    else:
+        r = f"recall ≥ {_one_decimal(recall.min(), math.floor)}%"
+    if loss.empty:
+        l_ = "loss --"
+    elif loss.max() <= 0:
+        l_ = "loss 0%"
+    else:
+        l_ = f"loss ≤ {_one_decimal(loss.max(), math.ceil)}%"
+    return f"{r}, {l_}"
 
-    return f"recall {span(sub['recall'])}, loss {span(sub['loss_rate'])}"
+
+def _one_decimal(share: float, direction: Any) -> str:
+    """A share as a percent with one decimal, rounded with `direction` (math.floor or math.ceil)
+    on the exact decimal value, so 0.999 gives 99.9 and not 99.8 from 99.89999..."""
+    tenths = Decimal(repr(float(share))) * 1000
+    return f"{Decimal(direction(tenths)) / 10:.1f}"
 
 
 # Kept under the old name for callers of the previous scatter.
 precision_recall = precision
 
 
-def behaviour(rates: pd.DataFrame, path: str | Path) -> Path:
+def behaviour(rates: pd.DataFrame, path: str | Path,
+              title: str | None = "Behavioural inflation") -> Path:
     """Top row: behavioural inflation per condition (the full-history baseline included), the
     y-axis scaled to the data. Bottom row, when the full-history probes are there:
-    compaction-induced inflation (condition minus full history, paired 95% interval) with a
-    zero line. One column per model."""
+    compaction-induced inflation (condition minus full history, paired 95% interval) for each
+    compacted condition, with the zero line marked as the baseline on the y-axis, outside the
+    data. One column per model."""
+    from inflatebench.probe.run import FULL
+
     rates = rates[rates["rate"].notna()]
     models, conds = _models(rates), conditions_in(rates)
     colors = condition_colors(conds)
@@ -324,7 +377,7 @@ def behaviour(rates: pd.DataFrame, path: str | Path) -> Path:
     nrows = 2 if induced is not None else 1
     with _paper_style():
         width = FULL_WIDTH if len(models) > 1 else COLUMN_WIDTH
-        fig, axes = _panels(nrows, max(len(models), 1), width, 2.0 * nrows + 1.0)
+        fig, axes = _panels(nrows, max(len(models), 1), width, 3.0 * nrows)
         top = _upper(rates["rate"], rates["hi"])
         for col, model in enumerate(models):
             ax = axes[0][col]
@@ -338,32 +391,24 @@ def behaviour(rates: pd.DataFrame, path: str | Path) -> Path:
             _percent_axis(ax, top)
             _panel_title(ax, model, len(models) > 1)
             if induced is not None:
-                # Same slots as the row above (the baseline's slot stays empty), so the
-                # condition names are written once, under the bottom row.
-                ax.tick_params(axis="x", labelbottom=False)
-                _induced_panel(axes[1][col], induced[induced["model"] == model], induced, conds,
-                               colors)
+                # Only the compacted conditions: full history minus itself is not a comparison,
+                # so it gets no (empty) slot.
+                _induced_panel(axes[1][col], induced[induced["model"] == model], induced,
+                               [c for c in conds if c != FULL], colors)
         axes[0][0].set_ylabel("probes acting on\ninflation (%)")
         if induced is not None:
             axes[1][0].set_ylabel("compacted − full history\n(percentage points)")
-        fig.suptitle("Behavioural inflation", x=0.01, ha="left", color=INK)
+        _title(fig, title)
     return save(fig, path)
 
 
 def _induced_panel(ax: plt.Axes, sub: pd.DataFrame, every: pd.DataFrame, conds: Sequence[str],
                    colors: dict[str, str]) -> None:
-    from inflatebench.probe.run import FULL
-
     sub = sub.set_index("condition").reindex(conds)
     _style(ax)
-    x = np.arange(len(conds))
     ax.axhline(0, color=INK_2, linewidth=0.8, zorder=1)
     for k, cond in enumerate(conds):
         r = sub.loc[cond]
-        if cond == FULL:
-            ax.annotate("baseline", (k + 0.4, 0), xytext=(0, 3), textcoords="offset points",
-                        ha="right", va="bottom", color=INK_2)
-            continue
         if pd.isna(r["induced"]):
             continue
         err = _yerr(pd.Series([r["induced"]]), pd.Series([r["induced_lo"]]),
@@ -375,8 +420,10 @@ def _induced_panel(ax: plt.Axes, sub: pd.DataFrame, every: pd.DataFrame, conds: 
     hi = np.nanmax(np.r_[every["induced_hi"].to_numpy(float), every["induced"].to_numpy(float), 0])
     pad = 0.08 * max(hi - lo, 0.02)
     ax.set_ylim(lo - pad, hi + pad)
-    ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: f"{100 * v:+g}"
-                                                                 if v else "0"))
+    # The zero line is the full-history baseline; its tick label says so, on the axis rather
+    # than in the plot, so the label can never cover a point or an interval.
+    ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(
+        lambda v, _: f"{100 * v:+g}" if abs(v) > 1e-12 else "baseline 0"))
     ax.yaxis.set_major_locator(matplotlib.ticker.MaxNLocator(nbins=5, steps=[1, 2, 2.5, 5, 10]))
     _condition_ticks(ax, conds)
 
@@ -399,7 +446,8 @@ FOREST_ROWS = (  # (test, label, outcome)
 
 
 def hypotheses_forest(table: pd.DataFrame, by_model: pd.DataFrame, path: str | Path,
-                      margin: float = 0.03) -> Path:
+                      margin: float = 0.03,
+                      title: str | None = "Preregistered rate differences (H1–H5)") -> Path:
     """Rate differences of H1-H5 and H2b with 95% paired bootstrap intervals: pooled over
     models (black diamond) and per model (coloured markers), a zero line, and the H2b
     equivalence band (+/- `margin`) shaded on the H2b row."""
@@ -448,10 +496,10 @@ def hypotheses_forest(table: pd.DataFrame, by_model: pd.DataFrame, path: str | P
                           label="pooled")]
         handles += [Line2D([], [], color=MODEL_SHADES[j % len(MODEL_SHADES)],
                            marker=MODEL_MARKERS[j % len(MODEL_MARKERS)], linestyle="none",
-                           markersize=4, label=m) for j, m in enumerate(models)]
+                           markersize=4, label=model_display(m)) for j, m in enumerate(models)]
         handles.append(Patch(facecolor="#eda100", alpha=0.22, edgecolor="none",
                              label=f"H2b equivalence band (±{100 * margin:g} points)"))
-        fig.suptitle("Preregistered rate differences (H1–H5)", x=0.01, ha="left", color=INK)
+        _title(fig, title)
         _legend_below(fig, handles, ncol=min(len(handles), 4))
     return save(fig, path)
 

@@ -485,6 +485,13 @@ def test_figure_with_low_rates_scales_the_axis(tmp_path):
         shown["induced"] = fig.axes[1].get_ylim()
         shown["rows"] = len(fig.axes)
         shown["problems"] = plots.layout_problems(fig)
+        shown["top_ticks"] = [t.get_text() for t in fig.axes[0].get_xticklabels()]
+        shown["low_ticks"] = [t.get_text() for t in fig.axes[1].get_xticklabels()]
+        fig.canvas.draw()
+        shown["zero"] = [t.get_text() for t in fig.axes[1].get_yticklabels()
+                         if t.get_position()[1] == 0]
+        shown["texts"] = [t.get_text() for ax in fig.axes for t in ax.texts]
+        shown["title"] = fig._suptitle.get_text() if fig._suptitle else None
         return real(fig, path)
 
     plots.save, old = save, plots.save
@@ -496,6 +503,64 @@ def test_figure_with_low_rates_scales_the_axis(tmp_path):
     assert shown["top"][0] == 0 and 0.05 < shown["top"][1] < 0.07  # just above the top bound
     assert shown["induced"][0] < -0.03 and shown["induced"][1] > 0.04  # zero line inside
     assert (tmp_path / "behaviour.pdf").exists()
+    # The lower panel has no slot for full history (nothing to compare it with); the baseline is
+    # named on the zero tick, outside the data, not as text inside the panel.
+    assert shown["top_ticks"] == ["free", "sectioned", "full history"]
+    assert shown["low_ticks"] == ["free", "sectioned"]
+    assert shown["zero"] == ["baseline 0"] and shown["texts"] == []
+    assert shown["title"] == "Behavioural inflation"
+    plots.save = save
+    try:
+        plots.behaviour(beh, tmp_path / "behaviour.png", title=None)
+    finally:
+        plots.save = old
+    assert shown["title"] is None and shown["problems"] == []
+
+
+def test_model_display_names():
+    from inflatebench.analyze import plots
+
+    assert plots.model_display("claude-haiku-5-5") == "Claude Haiku 5.5"
+    assert plots.model_display("glm-5.3-flash") == "GLM-5.3-Flash"
+    assert plots.model_display("m-a") == "m-a"
+
+
+def test_recall_note_bounds_hold_exactly_to_one_decimal():
+    from inflatebench.analyze.plots import _recall_note
+
+    def note(recall, loss):
+        return _recall_note(pd.DataFrame({"recall": recall, "loss_rate": loss}))
+
+    assert note([0.999, 1.0], [0.001, 0.0]) == "recall ≥ 99.9%, loss ≤ 0.1%"
+    # Rounded down and up, never to the nearer value: 99.96% is not ">= 100%".
+    assert note([0.9996, 1.0], [0.0004, 0.0]) == "recall ≥ 99.9%, loss ≤ 0.1%"
+    assert note([0.98, 0.995], [0.02, 0.005]) == "recall ≥ 98.0%, loss ≤ 2.0%"
+    assert note([1.0, 1.0], [0.0, 0.0]) == "recall 100%, loss 0%"
+    assert note([np.nan], [np.nan]) == "recall --, loss --"
+
+
+def test_controls_figure_notes_bars_too_short_to_see(tmp_path, layout_checked):
+    from inflatebench.analyze import plots
+
+    rates = pd.DataFrame({"model": "m", "condition": ["free"] * 3, "type": ["softened", "stale", "lost"],
+                          "rate": [0.0, 0.004, 0.35], "lo": [0.0, 0.0, 0.3], "hi": [0.0, 0.01, 0.4]})
+    seen = {}
+    real = plots.save
+
+    def save(fig, path):
+        seen[Path(path).stem] = fig.legends[0].get_title().get_text()
+        return real(fig, path)
+
+    plots.save = save
+    try:
+        plots.rates_by_type(rates, ("softened", "stale", "lost"), tmp_path / "c.png", None, small_note=True)
+        plots.rates_by_type(rates, ("softened", "stale", "lost"), tmp_path / "n.png", None)
+        big = rates.assign(rate=[0.2, 0.3, 0.35])
+        plots.rates_by_type(big, ("softened", "stale", "lost"), tmp_path / "b.png", None, small_note=True)
+    finally:
+        plots.save = real
+    assert seen["c"] == "Bars below 1% may not be visible; the table gives every rate."
+    assert seen["n"] == "" and seen["b"] == ""
 
 
 def test_display_names_order_and_colours_are_fixed():
