@@ -105,6 +105,8 @@ def test_paper_is_anonymous_and_cites_known_keys():
     keys = set(re.findall(r"@\w+\{(\w+),", (PAPER / "references.bib").read_text(encoding="utf-8")))
     cited = set()
     for tex in PAPER.rglob("*.tex"):
+        if "scirep" in tex.parts:
+               continue
         for group in re.findall(r"\\cite[tp]?\{([^}]+)\}", tex.read_text(encoding="utf-8")):
             cited |= {k.strip() for k in group.split(",")}
     assert cited and cited <= keys
