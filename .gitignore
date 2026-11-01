@@ -19,3 +19,14 @@ paper/main.pdf
 
 # Scientific Reports build output and upload zip
 paper/scirep/build/
+
+paper/scirep/*.aux
+paper/scirep/*.log
+paper/scirep/*.out
+paper/scirep/*.blg
+paper/scirep/*.bbl
+paper/scirep/*.fls
+paper/scirep/*.fdb_latexmk
+paper/scirep/*.synctex.gz
+paper/scirep/main.pdf
+paper/scirep/supplementary.pdf
