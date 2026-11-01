@@ -291,14 +291,14 @@ def rates_by_type(rates: pd.DataFrame, types: Sequence[str], path: str | Path,
 
 
 def _small_bars_note(rate: pd.Series, top: float) -> str | None:
-    """'Bars below 1% are too short to see; ...' when a bar is under 3% of the axis height (the
+    """'Bars below 1% may not be visible; ...' when a bar is under 3% of the axis height (the
     threshold rounded down to one significant digit), else None."""
     thr = 0.03 * top
     digits = -int(np.floor(np.log10(100 * thr)))
     shown = np.floor(100 * thr * 10 ** digits) / 10 ** digits
     if not (rate.dropna() < shown / 100).any():
         return None
-    return (f"Bars below {shown:.{max(digits, 0)}f}% may not be visible; the table gives every "
+    return (f"Bars below {shown:.{max(digits, 0)}f}% may not be visible; the text gives every "
             "rate.")
 
 

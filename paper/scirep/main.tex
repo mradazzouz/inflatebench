@@ -5,7 +5,13 @@
 % Figures are read from figures/ (as in the upload zip) or else from ../generated/figures/,
 % written by: python scripts/make_paper_assets.py RUN_ID --no-titles
 \documentclass[fleqn,10pt]{wlscirep}
-\usepackage[T1]{fontenc} % T1 Times: real accented glyphs (M\H{u}egyetem, Mitrovi\'{c})
+\usepackage[T1]{fontenc} % T1 encoding, so accented letters are single glyphs
+\usepackage{tgtermes,tgheros} % Times and Helvetica clones (TeX Gyre) with real precomposed
+                             % glyphs, so M\H{u}egyetem and Mitrovi\'{c} copy and search as typed
+% The class sets authors and affiliations in OT1 Helvetica, which composes accented letters
+% from two glyphs; use the same font in T1, so they are single glyphs too.
+\renewcommand\Authfont{\fontsize{12}{12}\usefont{T1}{\sfdefault}{b}{n}}
+\renewcommand\Affilfont{\fontsize{10}{12}\usefont{T1}{\sfdefault}{m}{n}}
 \graphicspath{{figures/}{../generated/figures/}}
 
 \title{Constraint Inflation: Context Compaction in LLM Agents Rarely Loses Instructions but Often Overstates Them}
@@ -49,7 +55,7 @@ We make four contributions:
 
 All hypotheses, metrics and quality gates were preregistered before any main-run data was collected. Across 10,080 summaries from two model families, loss was nearly absent while plain and sectioned summaries inflated 12--19\% of eligible items; the published fixes raised this to 23--41\%, and the agent's behaviour followed the same order.
 
-\textbf{Related work.} \textbf{What compaction loses.} A fast-growing line of work measures what agents forget when their history is summarised. Wang et al.\cite{wang2026lost} evaluate side constraints that disappear under compaction. Chen\cite{chen2026governance} shows that safety constraints can be silently erased in long-horizon agents. Sun et al.\cite{sun2026compactbench} measure what compaction costs coding agents, and Zerhoudi et al.\cite{zerhoudi2026cliff} describe a sharp drop in long-running agent memory. Salle et al.\cite{salle2026compaction} argue that many benchmarks are easier to compact than real work. Gamage\cite{gamage2026omission} finds that constraints telling an agent what \emph{not} to do decay faster than those telling it what to do. Loss also compounds: violations rise over repeated compactions\cite{chen2026governance}, and repeatedly rewriting an agent's whole context can collapse it into shorter, less informative summaries\cite{zhang2026ace}. Santos-Grueiro\cite{santosgrueiro2026ghost} shows that directive-bearing state can be dropped, weakened or rebound when an agent's decision-time context is assembled. All of these studies score whether an instruction survives, or whether it is weakened. None of them asks whether it survives larger than the user meant.
+\textbf{What compaction loses.} A fast-growing line of work measures what agents forget when their history is summarised. Wang et al.\cite{wang2026lost} evaluate side constraints that disappear under compaction. Chen\cite{chen2026governance} shows that safety constraints can be silently erased in long-horizon agents. Sun et al.\cite{sun2026compactbench} measure what compaction costs coding agents, and Zerhoudi et al.\cite{zerhoudi2026cliff} describe a sharp drop in long-running agent memory. Salle et al.\cite{salle2026compaction} argue that many benchmarks are easier to compact than real work. Gamage\cite{gamage2026omission} finds that constraints telling an agent what \emph{not} to do decay faster than those telling it what to do. Loss also compounds: violations rise over repeated compactions\cite{chen2026governance}, and repeatedly rewriting an agent's whole context can collapse it into shorter, less informative summaries\cite{zhang2026ace}. Santos-Grueiro\cite{santosgrueiro2026ghost} shows that directive-bearing state can be dropped, weakened or rebound when an agent's decision-time context is assembled. All of these studies score whether an instruction survives, or whether it is weakened. None of them asks whether it survives larger than the user meant.
 
 \textbf{Fixes for loss.} Two families of fixes respond to this problem. Extraction pulls the user's rules out of the history into a separate list that is appended to the summary\cite{wang2026lost}. Pinning stores the rules once and re-inserts them verbatim after every compaction\cite{chen2026governance}. Other work makes the summary itself more faithful: Woolford\cite{woolford2026transparency} improves the retention of facts and commitments through more transparent summaries, Min and Chen\cite{min2026prune} prune the summary rather than the history, and Zahn and Chana\cite{zahn2026facts} store facts as first-class objects. We test the two rule-focused fixes directly, because they act on exactly the items that can inflate.
 
@@ -201,7 +207,7 @@ Four of the six preregistered hypotheses were supported. The two that were not f
 
 \textbf{When inflation matters.} A rule written larger than intended is harmless if the agent never acts on it. Compaction did make the agent act on inflated one-offs more often, in the same order as the labels, but the behavioural rates were about a tenth of the promotion rates. Agents often rely on the task and the tools in front of them rather than on their summary: our agent called the probed tool in only 55--64\% of episodes. Inflated rules therefore change actions sometimes, not usually. Because long sessions are compacted repeatedly and agents act on many rules, a small per-rule rate can still add up, and the gap itself is a finding: summaries overstate rules far more often than agents follow them.
 
-\textbf{Limitations.} \textbf{Synthetic sessions.} The sessions are generated from templates, not taken from real users. This gives us known correct labels and balanced factors, but real sessions are messier, and the rates we report may not transfer directly. Checking inflation on real compaction logs is the most important next step.
+\textbf{Synthetic sessions.} The sessions are generated from templates, not taken from real users. This gives us known correct labels and balanced factors, but real sessions are messier, and the rates we report may not transfer directly. Checking inflation on real compaction logs is the most important next step.
 
 \textbf{Two summarisers.} We test one small commercial model and one open model, both fast, low-cost models. Stronger models may inflate less, or differently. The 80 templates cover many situations but not all of them.
 
@@ -341,9 +347,9 @@ Claude (Anthropic) was used to assist with discussing the study design, developi
 
 \section*{Data availability}
 
-The InflateBench benchmark and all model outputs are released with this paper at \url{https://github.com/mradazzouz/inflatebench} (scenario data under CC BY 4.0). % TODO: add the archived dataset location (e.g. a DOI) for the model outputs.
-\textcolor{red}{[TODO: archived location (DOI) of the released model outputs.]}
-The 40-session held-out set is kept private for future comparisons (Methods).
+\begin{sloppypar} % the unbreakable URL would otherwise overflow the first line
+The InflateBench benchmark (scenarios and generator) is available at \url{https://github.com/mradazzouz/inflatebench} (scenario data under CC BY 4.0). All model outputs (summaries, labels, probe episodes and reports) are archived at \textcolor{red}{[TODO: Zenodo DOI]}. The 40-session held-out set is kept private for future comparisons (Methods).
+\end{sloppypar}
 
 \section*{Code availability}
 

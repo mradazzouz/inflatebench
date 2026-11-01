@@ -559,7 +559,7 @@ def test_controls_figure_notes_bars_too_short_to_see(tmp_path, layout_checked):
         plots.rates_by_type(big, ("softened", "stale", "lost"), tmp_path / "b.png", None, small_note=True)
     finally:
         plots.save = real
-    assert seen["c"] == "Bars below 1% may not be visible; the table gives every rate."
+    assert seen["c"] == "Bars below 1% may not be visible; the text gives every rate."
     assert seen["n"] == "" and seen["b"] == ""
 
 
