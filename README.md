@@ -80,6 +80,15 @@ use the same file without `--scenarios`. For a real run, fill in the model names
    templates, so the three scenarios built from a template are drawn together),
    mixed-effects regressions (fixed effects for condition, model, cue, length and one-off
    position; random intercepts per template and per scenario), `summary.json` and figures.
+   The figures (`report/figures/`, each as PNG at 300 dpi and as PDF, 6.8 or 3.3 inches wide,
+   text at least 8 pt in print) are `inflation_by_type`, `controls_and_loss`, `precision`
+   (precision per condition; recall and loss, which barely vary, are stated under each panel)
+   and `behaviour` (behavioural rate per condition with the axis scaled to the data, and below it
+   compaction-induced inflation, condition minus full history, with a zero line). Conditions
+   keep one order, display name and colour in every figure (free, free (250 words), sectioned,
+   sectioned (no Constraints), keep rules, extractor, pinning, full history), one panel per
+   model with shared y-axes, the legend in its own row below the panels. Presentation only:
+   the figures draw the numbers in the CSV tables.
    `behaviour.csv` gives the behavioural rate over all probes (`rate`), how often the agent called
    the probe tool at all (`called_rate`), how often it refused the task instead
    (`refusal_rate`; refusals count as not inflated in `rate`), the behavioural rate among probes that called it
@@ -106,7 +115,9 @@ use the same file without `--scenarios`. For a real run, fill in the model names
    the model tells pooled rows apart and stays a factor everywhere (a fixed effect in every
    regression next to the random intercepts for template and scenario, a row per model in every
    table, a panel per model in every figure; the bootstrap still resamples one-off templates).
-   The report has every single-run table and figure, `behaviour.csv` also counts `probes`,
+   The report has every single-run table and figure, plus `figures/hypotheses_forest`: the
+   H1-H5 rate differences with their 95% paired bootstrap intervals, pooled and per model, a zero
+   line and the H2b equivalence band (+/-3 points) shaded. `behaviour.csv` also counts `probes`,
    `truncated`, `completed` and `refused` per condition and model, and the judges-agree
    selection is made run by run with each run's own main judges. On top come the tests of
    PREREGISTRATION.md, section 4, as written (`analyze/hypotheses.py`):
@@ -487,12 +498,16 @@ cd paper && latexmk -pdf main.tex                 # -> paper/main.pdf
 ```
 
 `make_paper_assets.py` reads `runs/<run_id>/report/` (`--run-dir` for another location,
-`--out` for another output directory) and writes `paper/generated/tables/*.tex` (bare
+`--out` for another output directory; RUN_ID may be a combined analysis, e.g.
+`python scripts/make_paper_assets.py combined`) and writes `paper/generated/tables/*.tex` (bare
 `tabular`s: inflation rates, control errors and loss, precision and recall, behaviour,
-regressions and the robustness tables, each rate in percent with its 95% interval),
+regressions and the robustness tables, each rate in percent with its 95% interval; from a
+combined report also `hypotheses` (H1-H5 and H2b: rate difference, odds ratio, Holm p,
+verdict), `hypotheses_by_model` and `verdicts` (confirmatory and robustness), conditions under
+the figures' display names),
 `paper/generated/macros.tex` (`\ibRunId`, `\ibNScenarios`, `\ibNItems`, flag rates and so on),
-the label tables from `judge/rubric.py`, and copies the figures to
-`paper/generated/figures/`. It empties the tables and figures folders first, so nothing from an
+the label tables from `judge/rubric.py`, and copies the figures (PDF, which the paper includes,
+and PNG) to `paper/generated/figures/`. It empties the tables and figures folders first, so nothing from an
 earlier run stays. Any missing asset shows as a grey placeholder box, so the paper builds
 before a run exists. `paper/generated/` and the build outputs are gitignored. A LaTeX
 distribution with `latexmk` is needed (on Debian or Ubuntu: `texlive-latex-recommended`,

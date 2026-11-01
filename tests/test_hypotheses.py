@@ -15,6 +15,7 @@ import prereg_synth as ps
 from inflatebench.analyze import analyze_run
 from inflatebench.analyze import hypotheses as hy
 from inflatebench.analyze import metrics as m
+from inflatebench.analyze import plots
 from inflatebench.analyze.combined import ROBUST_AGREE, ROBUST_UNFLAGGED, analyze_runs
 from inflatebench.judge.judges import FINAL
 from inflatebench.schema import write_jsonl
@@ -279,8 +280,9 @@ def test_combined_report_has_single_run_tables_and_the_hypotheses(combined):
                  "hypotheses_by_model.csv", "hypotheses_robustness_unflagged.csv",
                  "hypotheses_robustness_judges_agree.csv", "summary.json"):
         assert (out / name).exists(), name
-    assert summary["figures"] == ["behaviour.png", "controls_and_loss.png", "inflation_by_type.png",
-                                  "precision_recall.png"]
+    assert summary["figures"] == ["behaviour.png", "controls_and_loss.png", "hypotheses_forest.png",
+                                  "inflation_by_type.png", "precision.png"]
+    assert all((out / "figures" / f).with_suffix(".pdf").exists() for f in summary["figures"])
     assert set(pd.read_csv(out / "inflation_rates.csv")["model"]) == set(ps.MODELS)
     assert summary["runs"]["main-m-haiku"]["models"] == ["m-haiku"]
     on_disk = json.loads((out / "summary.json").read_text(encoding="utf-8"))
@@ -385,3 +387,51 @@ def test_cli_combined_analysis(tmp_path, scen, capsys):
                       ([], "pass --run-id")):
         with pytest.raises(SystemExit, match=msg):
             main(base + args)
+
+
+def test_paper_assets_from_the_combined_report(combined, tmp_path):
+    import importlib.util
+
+    root = Path(__file__).parent.parent
+    spec = importlib.util.spec_from_file_location("make_paper_assets", root / "scripts" / "make_paper_assets.py")
+    assets = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(assets)
+    summary, out = combined
+    gen = tmp_path / "generated"
+    assert assets.main(["combined", "--run-dir", str(out.parent), "--out", str(gen)]) == 0
+    tables = {p.stem for p in (gen / "tables").glob("*.tex")}
+    assert {"hypotheses", "hypotheses_by_model", "verdicts", "inflation_rates", "behaviour"} <= tables
+    hyp = (gen / "tables" / "hypotheses.tex").read_text(encoding="utf-8")
+    rows = [l.split(" & ")[0] for l in hyp.splitlines() if l.startswith("H")]
+    assert rows == [t for t, _, _ in plots.FOREST_ROWS]
+    assert "sectioned $-$ free (inflation)" in hyp and "supported" in hyp
+    by_model = (gen / "tables" / "hypotheses_by_model.tex").read_text(encoding="utf-8")
+    assert all(m in by_model for m in ps.MODELS)
+    verdicts = (gen / "tables" / "verdicts.tex").read_text(encoding="utf-8")
+    assert "Confirmatory & Unflagged labels & Judges agree" in verdicts
+    beh = (gen / "tables" / "behaviour.tex").read_text(encoding="utf-8")
+    assert "full history" in beh and "sectioned (no Constraints)" in beh
+    names = {p.name for p in (gen / "figures").iterdir()}
+    assert {"hypotheses_forest.pdf", "hypotheses_forest.png", "behaviour.pdf", "precision.pdf"} <= names
+
+
+def test_forest_plot_layout(combined, tmp_path, monkeypatch):
+    summary, out = combined
+    table = pd.read_csv(out / "hypotheses.csv")
+    by_model = pd.read_csv(out / "hypotheses_by_model.csv")
+    seen = {}
+    real = plots.save
+
+    def save(fig, path):
+        ax = fig.axes[0]
+        seen.update(problems=plots.layout_problems(fig), width=fig.get_size_inches()[0],
+                    labels=[t.get_text() for t in ax.get_yticklabels()], xlim=ax.get_xlim())
+        return real(fig, path)
+
+    monkeypatch.setattr(plots, "save", save)
+    plots.hypotheses_forest(table, by_model, tmp_path / "forest.png", margin=hy.EQUIVALENCE_MARGIN)
+    assert seen["problems"] == []
+    assert round(seen["width"], 1) == plots.FULL_WIDTH
+    assert len(seen["labels"]) == 11 and seen["labels"][0].startswith("H1: sectioned")
+    assert seen["xlim"][0] < -hy.EQUIVALENCE_MARGIN and seen["xlim"][1] > hy.EQUIVALENCE_MARGIN
+    assert (tmp_path / "forest.pdf").exists()

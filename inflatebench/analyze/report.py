@@ -210,11 +210,14 @@ def analyze(labels: Iterable[Label], scenarios: Iterable[Scenario],
 
     if figures:
         fig = out / "figures"
+        # Start clean, so no figure from an earlier analysis (or an earlier name) stays behind.
+        for old in (*fig.glob("*.png"), *fig.glob("*.pdf")):
+            old.unlink()
         plots.rates_by_type(rates, m.INFLATING, fig / "inflation_by_type.png",
                             "Inflation rate by type")
         plots.rates_by_type(rates, tuple(m.CONTROL_TYPES), fig / "controls_and_loss.png",
                             "Control errors and loss")
-        plots.precision_recall(pr, fig / "precision_recall.png")
+        plots.precision(pr, fig / "precision.png")
         if beh is not None:
             plots.behaviour(beh, fig / "behaviour.png")
         summary["figures"] = sorted(p.name for p in fig.glob("*.png"))

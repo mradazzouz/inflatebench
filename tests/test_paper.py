@@ -131,18 +131,20 @@ def test_make_paper_assets_writes_tables_macros_and_figures(tmp_path, pilot):
                       "allowed_labels", "precedence"}
     infl = (out / "tables" / "inflation_rates.tex").read_text(encoding="utf-8")
     assert infl.startswith("\\begin{tabular}{llrrrr}")  # two models, so a model column
-    assert "request\\_promoted" in infl and "keep\\_rules" in infl
+    assert "request\\_promoted" in infl and "keep rules" in infl
     # Conditions in the paper's fixed order, within each model.
     rows = [l.split(" & ")[1] for l in infl.splitlines() if l.startswith("m-a &")]
-    assert rows == ["free", "sectioned", "keep\\_rules", "extractor", "pinning"]
+    assert rows == ["free", "sectioned", "keep rules", "extractor", "pinning"]
     assert re.search(r"\d+\.\d \{\\scriptsize\[\d+\.\d, \d+\.\d\]\}", infl)
     assert "condition: sectioned" in (out / "tables" / "regression_items.tex").read_text(encoding="utf-8")
     labels = (out / "tables" / "labels.tex").read_text(encoding="utf-8")
     assert all(f"\\texttt{{{assets.tex(k)}}}" in labels for k in LABEL_DEFINITIONS)
     macros = (out / "macros.tex").read_text(encoding="utf-8")
     assert "\\newcommand{\\ibRunId}{r1}" in macros and "\\newcommand{\\ibNScenarios}{24}" in macros
-    assert sorted(p.name for p in (out / "figures").glob("*.png")) == [
-        "behaviour.png", "controls_and_loss.png", "inflation_by_type.png", "precision_recall.png"]
+    figures = ["behaviour", "controls_and_loss", "inflation_by_type", "precision"]
+    assert sorted(p.name for p in (out / "figures").iterdir()) == sorted(
+        f"{f}.{ext}" for f in figures for ext in ("pdf", "png"))
+    assert not (out / "tables" / "hypotheses.tex").exists()  # a single run has no hypothesis tests
 
 
 def test_make_paper_assets_without_probes_or_report(tmp_path, pilot):

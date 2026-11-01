@@ -259,9 +259,10 @@ def test_analyze_run_writes_report(tmp_path, pilot):
                  "regression_items.csv", "regression_behaviour.csv", "summary.json"):
         assert (report / name).exists(), name
     assert summary["figures"] == ["behaviour.png", "controls_and_loss.png",
-                                  "inflation_by_type.png", "precision_recall.png"]
+                                  "inflation_by_type.png", "precision.png"]
     for fig in summary["figures"]:
         assert (report / "figures" / fig).read_bytes()[:4] == b"\x89PNG"
+        assert (report / "figures" / fig).with_suffix(".pdf").read_bytes()[:5] == b"%PDF-"
     on_disk = json.loads((report / "summary.json").read_text(encoding="utf-8"))
     assert on_disk["n_scenarios"] == 24
     beh = pd.read_csv(report / "behaviour.csv").groupby("condition")["rate"].mean()
@@ -434,3 +435,91 @@ def test_analyze_run_reads_judge_roles_from_judge_json(tmp_path):
     summary = json.loads((tmp_path / "runs/r/report/summary.json").read_text(encoding="utf-8"))
     assert summary["robustness_judges_agree"]["main_judges"] == [roles["first"], roles["second"]]
     assert (tmp_path / "runs/r/report/inflation_rates_judges_agree.csv").exists()
+
+
+# --- Figures: layout, size, names and colours --------------------------------------------------
+
+@pytest.fixture
+def layout_checked(monkeypatch):
+    """Every figure saved is checked for colliding text and its size recorded."""
+    from inflatebench.analyze import plots
+
+    seen = {}
+    real = plots.save
+
+    def save(fig, path):
+        seen[Path(path).name] = {"problems": plots.layout_problems(fig),
+                                 "size": tuple(fig.get_size_inches())}
+        return real(fig, path)
+
+    monkeypatch.setattr(plots, "save", save)
+    return seen
+
+
+@pytest.mark.parametrize("models", [("m-a",), ("m-a", "m-b"), ("m-a", "m-b", "a-much-longer-model-name")])
+def test_figures_have_no_overlapping_text(tmp_path, pilot, layout_checked, models):
+    from inflatebench.analyze import plots
+
+    scenarios, labels, probes = synthetic_run(pilot, n_scenarios=12, models=models)
+    analyze(labels, scenarios, probes, tmp_path / "rep", n_boot=20)
+    assert set(layout_checked) == {"behaviour.png", "controls_and_loss.png", "inflation_by_type.png",
+                                   "precision.png"}
+    for name, info in layout_checked.items():
+        assert info["problems"] == [], (name, info["problems"])
+        assert round(info["size"][0], 1) in (plots.COLUMN_WIDTH, plots.FULL_WIDTH), name
+    assert plots.FONT >= 8 * plots.FULL_WIDTH / 6.5  # >= 8 pt when set at a 6.5 in text width
+
+
+def test_figure_with_low_rates_scales_the_axis(tmp_path):
+    from inflatebench.analyze import plots
+
+    beh = pd.DataFrame({"condition": ["free", "sectioned", "full"], "model": "m",
+                        "rate": [0.01, 0.04, 0.02], "lo": [0.0, 0.02, 0.0], "hi": [0.03, 0.05, 0.04],
+                        "induced": [-0.01, 0.02, np.nan], "induced_lo": [-0.03, 0.0, np.nan],
+                        "induced_hi": [0.01, 0.04, np.nan]})
+    shown = {}
+    real = plots.save
+
+    def save(fig, path):
+        shown["top"] = fig.axes[0].get_ylim()
+        shown["induced"] = fig.axes[1].get_ylim()
+        shown["rows"] = len(fig.axes)
+        shown["problems"] = plots.layout_problems(fig)
+        return real(fig, path)
+
+    plots.save, old = save, plots.save
+    try:
+        plots.behaviour(beh, tmp_path / "behaviour.png")
+    finally:
+        plots.save = old
+    assert shown["rows"] == 2 and shown["problems"] == []
+    assert shown["top"][0] == 0 and 0.05 < shown["top"][1] < 0.07  # just above the top bound
+    assert shown["induced"][0] < -0.03 and shown["induced"][1] > 0.04  # zero line inside
+    assert (tmp_path / "behaviour.pdf").exists()
+
+
+def test_display_names_order_and_colours_are_fixed():
+    from inflatebench.analyze import plots
+
+    df = pd.DataFrame({"condition": ["full", "pinning", "sectioned_noconstraints", "free_limited", "free"]})
+    assert plots.conditions_in(df) == ["free", "free_limited", "sectioned_noconstraints", "pinning", "full"]
+    assert [plots.display(c) for c in plots.CONDITION_ORDER] == [
+        "free", "free (250 words)", "sectioned", "sectioned (no Constraints)", "keep rules",
+        "extractor", "pinning", "full history"]
+    # A condition keeps its colour whichever subset is plotted.
+    assert plots.condition_colors(["pinning"])["pinning"] == plots.condition_colors(
+        list(plots.CONDITION_ORDER))["pinning"]
+    assert len(set(plots.COLORS.values())) == len(plots.CONDITION_ORDER)
+
+
+def test_layout_check_catches_colliding_labels():
+    import matplotlib.pyplot as plt
+
+    from inflatebench.analyze import plots
+
+    fig, ax = plt.subplots(figsize=(2, 2), layout="constrained")
+    ax.set_xticks(range(4), ["sectioned (no Constraints)"] * 4)
+    assert any("overlaps" in p for p in plots.layout_problems(fig))
+    ax.set_xticks(range(4), list("abcd"))
+    assert plots.layout_problems(fig) == []
+    plt.close(fig)

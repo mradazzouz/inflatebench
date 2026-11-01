@@ -2,6 +2,10 @@
 
     python scripts/make_paper_assets.py RUN_ID [--config config.yaml] [--out paper/generated]
 
+RUN_ID is a single run or a combined analysis (ib analyze --runs ... --out-id combined); for a
+combined one the preregistered hypothesis tables are written too (hypotheses, hypotheses_by_model,
+verdicts) and the forest plot is copied with the other figures, each as PDF and PNG.
+
 Every table is a bare tabular (no float, no caption), so the paper sets captions and placement.
 Rates are percentages with their 95% bootstrap interval. The label tables are written from
 inflatebench/judge/rubric.py, so the appendix uses exactly the judge's definitions.
@@ -22,12 +26,13 @@ import pandas as pd
 import yaml
 
 from inflatebench.analyze.metrics import CONTROL_TYPES, INFLATING
-from inflatebench.analyze.plots import conditions_in
+from inflatebench.analyze.plots import FOREST_ROWS, conditions_in, display
 from inflatebench.judge.rubric import ALLOWED_LABELS, EXPECTED, LABEL_DEFINITIONS, PRECEDENCE
 
 ROOT = Path(__file__).resolve().parent.parent
 TABLES = ("inflation_rates", "inflation_rates_unflagged", "controls", "precision_recall",
-          "behaviour", "regression_items", "regression_behaviour")
+          "behaviour", "regression_items", "regression_behaviour", "hypotheses",
+          "hypotheses_by_model", "verdicts")
 
 
 def tex(s: Any) -> str:
@@ -72,7 +77,7 @@ def _ordered(df: pd.DataFrame) -> list[tuple[str, str]]:
 
 
 def _row_head(model: str, condition: str, many_models: bool) -> list[str]:
-    return ([tex(model)] if many_models else []) + [tex(condition)]
+    return ([tex(model)] if many_models else []) + [tex(display(condition))]
 
 
 def rates_table(rates: pd.DataFrame, types: Sequence[str]) -> str:
@@ -130,6 +135,65 @@ def regression_table(reg: pd.DataFrame) -> str:
     return tabular(["Term", "Coef.", "SD", "OR", "95\\% interval"], rows, "lrrrr")
 
 
+FOREST = {t: (label, outcome) for t, label, outcome in FOREST_ROWS}
+
+
+def _comparison(test: str) -> str:
+    label, outcome = FOREST.get(test, (test, ""))
+    text = tex(label).replace("\u2212", "$-$")
+    return f"{text} ({tex(outcome)})" if outcome else text
+
+
+def p_value(p: Any) -> str:
+    if _missing(p):
+        return "--"
+    if p < 0.001:
+        mant, exp = f"{p:.1e}".split("e")
+        return f"${mant}\\times 10^{{{int(exp)}}}$"
+    return f"{p:.3f}"
+
+
+def hypotheses_table(hyp: pd.DataFrame) -> str:
+    """H1-H5 and H2b (confirmatory): rate difference in percentage points with its 95% paired
+    bootstrap interval, odds ratio with its 95% interval, Holm p and the test's verdict."""
+    rows = []
+    order = [t for t, _, _ in FOREST_ROWS]
+    tests = hyp[hyp["test"].isin(order)].assign(_k=lambda d: d["test"].map(order.index)).sort_values("_k")
+    for r in tests.itertuples():
+        ci = "--" if _missing(r.or_lo) else f"{num(r.odds_ratio)} {{\\scriptsize[{num(r.or_lo)}, {num(r.or_hi)}]}}"
+        rows.append([tex(r.test), _comparison(r.test),
+                     pct(r.rate_diff, r.rate_diff_lo, r.rate_diff_hi, signed=True),
+                     ci if r.test != "H2b" else "--", p_value(r.p_holm) if r.test != "H2b" else "--",
+                     tex(r.test_verdict)])
+    return tabular(["Test", "Comparison", "Difference (pp)", "Odds ratio", "Holm $p$", "Verdict"],
+                   rows, "llrrrl")
+
+
+def hypotheses_by_model_table(bm: pd.DataFrame) -> str:
+    """Rate difference per test (rows) and model (columns), in percentage points."""
+    order = [t for t, _, _ in FOREST_ROWS]
+    models = sorted(bm["model"].dropna().unique())
+    cell = {(r.test, r.model): pct(r.rate_diff, r.rate_diff_lo, r.rate_diff_hi, signed=True)
+            for r in bm.itertuples()}
+    rows = [[tex(t), _comparison(t)] + [cell.get((t, m), "--") for m in models]
+            for t in order if t in set(bm["test"])]
+    return tabular(["Test", "Comparison"] + [tex(m) for m in models], rows, "ll" + "r" * len(models))
+
+
+def verdicts_table(summary: dict[str, Any]) -> str | None:
+    """Verdict per hypothesis: confirmatory, then each robustness analysis that ran."""
+    hyp = summary.get("hypotheses") or {}
+    names = [(k, label) for k, label in (("confirmatory", "Confirmatory"),
+                                         ("robustness: unflagged labels", "Unflagged labels"),
+                                         ("robustness: judges agree", "Judges agree"))
+             if "verdicts" in hyp.get(k, {})]
+    if not names:
+        return None
+    hypotheses = list(hyp[names[0][0]]["verdicts"])
+    rows = [[tex(h)] + [tex(hyp[k]["verdicts"].get(h, "--")) for k, _ in names] for h in hypotheses]
+    return tabular(["Hypothesis"] + [label for _, label in names], rows, "l" + "l" * len(names))
+
+
 def label_tables() -> dict[str, str]:
     """Label definitions, allowed labels per type and the precedence order, from the rubric."""
     defs = tabular(["Label", "Definition"],
@@ -184,14 +248,18 @@ def make_assets(report: Path, out: Path, run_id: str, run_info: dict[str, Any] |
         ("behaviour", "behaviour.csv", behaviour_table),
         ("regression_items", "regression_items.csv", regression_table),
         ("regression_behaviour", "regression_behaviour.csv", regression_table),
+        ("hypotheses", "hypotheses.csv", hypotheses_table),
+        ("hypotheses_by_model", "hypotheses_by_model.csv", hypotheses_by_model_table),
     ]
     for name, csv, fn in jobs:
         if (report / csv).exists():
             write(f"tables/{name}.tex", fn(pd.read_csv(report / csv)))
+    if (verdicts := verdicts_table(summary)) is not None:
+        write("tables/verdicts.tex", verdicts)
     for name, text in label_tables().items():
         write(f"tables/{name}.tex", text)
     write("macros.tex", macros(summary, run_id, run_info or {}))
-    for fig in sorted((report / "figures").glob("*.png")):
+    for fig in sorted((*(report / "figures").glob("*.pdf"), *(report / "figures").glob("*.png"))):
         written.append(Path(shutil.copy2(fig, out / "figures" / fig.name)))
     return written
 
