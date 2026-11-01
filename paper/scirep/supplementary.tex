@@ -3,7 +3,9 @@
 % the hypothesis tables from tables/ or else from ../generated/tables/, both written by
 %   python scripts/make_paper_assets.py RUN_ID --no-titles
 \documentclass[fleqn,10pt]{wlscirep}
-\usepackage[T1]{fontenc} % T1 Times: real accented glyphs (M\H{u}egyetem, Mitrovi\'{c})
+\usepackage[T1]{fontenc} % T1 encoding, so accented letters are single glyphs
+\usepackage{tgtermes,tgheros} % Times and Helvetica clones (TeX Gyre) with real precomposed
+                             % glyphs, so M\H{u}egyetem and Mitrovi\'{c} copy and search as typed
 \usepackage[export]{adjustbox}
 \graphicspath{{figures/}{../generated/figures/}}
 
@@ -62,7 +64,9 @@ The full preregistration and all five addenda are in the repository (\texttt{PRE
 % ---------------------------------------------------------------------------------------------
 \section*{C Label definitions}
 
+\begin{sloppypar}
 The judges and the human annotator use the same definitions, rules and allowed labels, given word for word in \texttt{LABEL\_GUIDE.md} and in the judges' rubric; a test checks that the two match.
+\end{sloppypar}
 
 \begin{table}[!htbp]
 \centering
