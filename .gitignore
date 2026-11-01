@@ -16,3 +16,6 @@ paper/*.fls
 paper/*.log
 paper/*.out
 paper/main.pdf
+
+# Scientific Reports build output and upload zip
+paper/scirep/build/

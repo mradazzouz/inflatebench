@@ -1,0 +1,4 @@
+# latexmk settings for the Scientific Reports version: PDF output, all build files in build/.
+$pdf_mode = 1;
+$out_dir = 'build';
+@default_files = ('main.tex', 'supplementary.tex');
