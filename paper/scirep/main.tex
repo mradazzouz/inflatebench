@@ -5,6 +5,7 @@
 % Figures are read from figures/ (as in the upload zip) or else from ../generated/figures/,
 % written by: python scripts/make_paper_assets.py RUN_ID --no-titles
 \documentclass[fleqn,10pt]{wlscirep}
+\usepackage[T1]{fontenc} % T1 Times: real accented glyphs (M\H{u}egyetem, Mitrovi\'{c})
 \graphicspath{{figures/}{../generated/figures/}}
 
 \title{Constraint Inflation: Context Compaction in LLM Agents Rarely Loses Instructions but Often Overstates Them}
@@ -33,9 +34,9 @@ Researchers have started to ask what compaction throws away. Recent benchmarks s
 
 This paper asks a second question: \emph{was the rule kept at the right size?} Consider a user who writes, during a data-pipeline session, ``drop the rows with no country for this run.'' A good summary records this as a one-time step that has already happened. A worse one writes, under a heading such as \emph{Constraints \& Preferences}, ``Drop rows with no country.'' Nothing was lost. The rule is still there, but it now reads as standing policy, and an agent that trusts its summary will apply it to every future run.
 
-We call this \textbf{constraint inflation}. In a small pilot with two commercial assistants and a sectioned summary template, both assistants promoted exactly this one-run filter into the nightly job's strategy. Inflation is easy to miss. A loss benchmark scores such a summary as correct, because the rule is present, and fixes designed against loss may even encourage it, by asking the summariser to keep every instruction it sees.
+We call this \textbf{constraint inflation}. In a small pilot with two commercial assistants and a sectioned summary template, both assistants promoted exactly this one-run filter into the nightly job's strategy (Supplementary Table S1). Inflation is easy to miss. A loss benchmark scores such a summary as correct, because the rule is present, and fixes designed against loss may even encourage it, by asking the summariser to keep every instruction it sees.
 
-Inflation is not hypothetical. Developers of the open-source Hermes agent have reported that its compaction can turn an instruction scoped to one operation into a standing user constraint, and that user corrections can harden into permanent prohibitions\cite{hermes2026issue}. A recent paper on validating compaction shows a targeted patch rewritten as a blanket instruction to remove a function everywhere\cite{chen2026slipstream}, and OpenAI has described models writing new rules into their own compaction summaries during training\cite{openai2026compaction}. These reports are anecdotes. No study has measured how often inflation happens, which compaction designs cause it, or whether it changes what agents do.
+Inflation is not hypothetical. Developers of the open-source Hermes agent have reported that its compaction can turn an instruction scoped to one operation into a standing user constraint, and that user corrections can harden into permanent prohibitions\cite{hermes2026issue}. A recent paper on validating compaction shows a targeted patch rewritten as a blanket instruction to remove a function everywhere\cite{chen2026slipstream}. These reports are anecdotes. No study has measured how often inflation happens, which compaction designs cause it, or whether it changes what agents do.
 
 We make four contributions:
 
@@ -48,9 +49,7 @@ We make four contributions:
 
 All hypotheses, metrics and quality gates were preregistered before any main-run data was collected. Across 10,080 summaries from two model families, loss was nearly absent while plain and sectioned summaries inflated 12--19\% of eligible items; the published fixes raised this to 23--41\%, and the agent's behaviour followed the same order.
 
-\subsection*{Related work}
-
-\textbf{What compaction loses.} A fast-growing line of work measures what agents forget when their history is summarised. Wang et al.\cite{wang2026lost} evaluate side constraints that disappear under compaction. Chen\cite{chen2026governance} shows that safety constraints can be silently erased in long-horizon agents. Sun et al.\cite{sun2026compactbench} measure what compaction costs coding agents, and Zerhoudi et al.\cite{zerhoudi2026cliff} describe a sharp drop in long-running agent memory. Salle et al.\cite{salle2026compaction} argue that many benchmarks are easier to compact than real work. Gamage\cite{gamage2026omission} finds that constraints telling an agent what \emph{not} to do decay faster than those telling it what to do. Loss also compounds: violations rise over repeated compactions\cite{chen2026governance}, and repeatedly rewriting an agent's whole context can collapse it into shorter, less informative summaries\cite{zhang2026ace}. Santos-Grueiro\cite{santosgrueiro2026ghost} shows that directive-bearing state can be dropped, weakened or rebound when an agent's decision-time context is assembled. All of these studies score whether an instruction survives, or whether it is weakened. None of them asks whether it survives larger than the user meant.
+\textbf{Related work.} \textbf{What compaction loses.} A fast-growing line of work measures what agents forget when their history is summarised. Wang et al.\cite{wang2026lost} evaluate side constraints that disappear under compaction. Chen\cite{chen2026governance} shows that safety constraints can be silently erased in long-horizon agents. Sun et al.\cite{sun2026compactbench} measure what compaction costs coding agents, and Zerhoudi et al.\cite{zerhoudi2026cliff} describe a sharp drop in long-running agent memory. Salle et al.\cite{salle2026compaction} argue that many benchmarks are easier to compact than real work. Gamage\cite{gamage2026omission} finds that constraints telling an agent what \emph{not} to do decay faster than those telling it what to do. Loss also compounds: violations rise over repeated compactions\cite{chen2026governance}, and repeatedly rewriting an agent's whole context can collapse it into shorter, less informative summaries\cite{zhang2026ace}. Santos-Grueiro\cite{santosgrueiro2026ghost} shows that directive-bearing state can be dropped, weakened or rebound when an agent's decision-time context is assembled. All of these studies score whether an instruction survives, or whether it is weakened. None of them asks whether it survives larger than the user meant.
 
 \textbf{Fixes for loss.} Two families of fixes respond to this problem. Extraction pulls the user's rules out of the history into a separate list that is appended to the summary\cite{wang2026lost}. Pinning stores the rules once and re-inserts them verbatim after every compaction\cite{chen2026governance}. Other work makes the summary itself more faithful: Woolford\cite{woolford2026transparency} improves the retention of facts and commitments through more transparent summaries, Min and Chen\cite{min2026prune} prune the summary rather than the history, and Zahn and Chana\cite{zahn2026facts} store facts as first-class objects. We test the two rule-focused fixes directly, because they act on exactly the items that can inflate.
 
@@ -60,16 +59,18 @@ All hypotheses, metrics and quality gates were preregistered before any main-run
 
 \textbf{Instructions that outlive their scope.} Outside compaction, ReBIND\cite{rebind2026deadtext} measures whether behaviour that is no longer required persists across dialogue turns, and Beyond Continuity\cite{beyondcontinuity2026} measures how often models carry stale context into a new topic. In long-term memory, MemSecBench\cite{memsecbench2026} shows how losing temporal context can turn a temporary instruction into a persistent rule. Within compaction, Min and Chen\cite{min2026prune} find that much of the reasoning in summaries has no source in the environment. These studies concern live context, long-term memory, or unsupported content in general. We isolate the summary as the place where an instruction's scope and strength are rewritten.
 
-\textbf{Reports of inflation in compaction.} The failure we study has been noticed in practice. Bug reports for the Hermes agent describe one-off instructions promoted to standing constraints and corrections hardened into global prohibitions\cite{hermes2026issue}. Slipstream\cite{chen2026slipstream} validates compaction summaries against the agent's later trajectory. It reports that commission errors, where a summary introduces or changes information, make up roughly a tenth of compaction failures in its workloads, among them a scoped edit rewritten as a global one. OpenAI has reported models adding rules of their own to compaction summaries during training\cite{openai2026compaction}. None of these measures how often a user's instructions are inflated, separates the types, or tests what causes it.
+\textbf{Reports of inflation in compaction.} The failure we study has been noticed in practice. Bug reports for the Hermes agent describe one-off instructions promoted to standing constraints and corrections hardened into global prohibitions\cite{hermes2026issue}. Slipstream\cite{chen2026slipstream} validates compaction summaries against the agent's later trajectory. It reports that commission errors, where a summary introduces or changes information, make up roughly a tenth of compaction failures in its workloads, among them a scoped edit rewritten as a global one. None of these measures how often a user's instructions are inflated, separates the types, or tests what causes it.
 
 \textbf{Our position.} InflateBench turns these reports into measurements. To our knowledge, it is the first benchmark that measures inflation as a rate, separates it into types, tests whether constraint-preserving fixes cause it, and checks whether it changes the agent's next action.
 
 % ---------------------------------------------------------------------------------------------
 \section*{Results}
 
+Each model produced 5,040 summaries, so 60,480 planted items were labelled in total, and the behaviour test ran 10,800 distinct episodes: 10,080 after compaction and 720 with the full history, which serve as the baseline for both models. Unless stated otherwise, rates are pooled over both models, and intervals are 95\% bootstrap intervals that resample templates.
+
 \subsection*{Constraint inflation}
 
-An instruction has two properties that a summary can change without deleting it: its \textbf{scope} (one occasion, one file, or everything from now on) and its \textbf{strength} (a wish or a requirement). Inflation is any change that makes either one larger than the user said. We distinguish four types, and pair them with two controls that test errors in the other direction.
+An instruction has two properties that a summary can change without deleting it: its \textbf{scope} (one occasion, one file, or everything from now on) and its \textbf{strength} (a wish or a requirement). Inflation is any change that makes either one larger than the user said. We distinguish four types (Table~\ref{tab:types}), and pair them with two controls that test errors in the other direction.
 
 \begin{table}[!htbp]
 \centering
@@ -95,15 +96,13 @@ A compacted context can show the same item in more than one place, for example i
 
 The two controls matter for interpretation. A summariser that simply copies every instruction word for word would score well on loss and may still promote one-offs. A summariser that shortens everything would soften hard rules. Measuring both directions shows whether inflation is a general loss of precision or a specific pull toward stronger, broader rules.
 
-Each model produced 5,040 summaries, so 60,480 planted items were labelled in total, and the behaviour test ran 10,800 distinct episodes: 10,080 after compaction and 720 with the full history, which serve as the baseline for both models. Unless stated otherwise, rates are pooled over both models, and intervals are 95\% bootstrap intervals that resample templates.
-
 \subsection*{Judge reliability}
 
 The two main judges gave the same label to 94.2\% of items; the tie-break judge decided the remaining 3,519 (5.8\%). Of 64,111 final supporting quotes, 10 (0.02\%) could not be found in the summary after a re-ask, and no final label fell outside the set allowed for its item type. Judge--human agreement is reported in Methods (\emph{Human validation}).
 
 \subsection*{How often summaries inflate}
 
-\textbf{Summaries kept almost every instruction but inflated many of them.} Loss was below 0.8\% in every model and condition, and below 0.15\% in 12 of 14 cells; constraint recall was above 99.2\% everywhere. Inflation was common. With a free summary, 11.7\% (Haiku) and 14.0\% (GLM) of eligible items were inflated. Most of it was hardening: 39\% and 45\% of preferences lost their hedge. Promotion affected 6--9\% of one-offs, request promotion about 1\% of tasks, and widening stayed below 0.5\% in every condition. Constraint precision, the share of listed rules that are genuine standing rules, ranged from 88\% down to 40\% (Table~\ref{tab:combined}).
+\textbf{Summaries kept almost every instruction but inflated many of them} (Fig.~\ref{fig:types}). Loss was below 0.8\% in every model and condition, and below 0.15\% in 12 of 14 cells; constraint recall was above 99.2\% everywhere. Inflation was common. With a free summary, 11.7\% (Haiku) and 14.0\% (GLM) of eligible items were inflated. Most of it was hardening: 39\% and 45\% of preferences lost their hedge. Promotion affected 6--9\% of one-offs, request promotion about 1\% of tasks, and widening stayed below 0.5\% in every condition. Constraint precision, the share of listed rules that are genuine standing rules, ranged from 88\% down to 40\% (Table~\ref{tab:combined}; Supplementary Fig. S1).
 
 \begin{table}[!htbp]
 \centering
@@ -131,13 +130,13 @@ pinning & 32.3\% & 50.6\% & 0.0\% / 0.0\% & 55\% / 40\% \\
 \caption{\label{fig:types}\textbf{Inflation rate by type.} Share of eligible items labelled promoted, widened, hardened or request promoted, per condition, for Claude Haiku 5.5 (left) and GLM-5.3-Flash (right), with 95\% template-clustered bootstrap intervals.}
 \end{figure}
 
-\textbf{Summaries also invent rules.} The judges reported rules that match no instruction the user gave. Depending on model and condition, 16--57\% of summaries contained at least one, with 0.16--0.90 invented rules per summary. They were most common in Haiku's free summaries (0.90 per summary; 57\% of summaries) and least common in \emph{keep\_rules} (0.16 for Haiku, 0.30 for GLM), where the summariser is told to copy the user's own rules. Extraction and pinning added almost none: their counts are within 4\% of the sectioned summary they share (Haiku 0.33--0.35, GLM 0.57--0.58 per summary). Invented rules rest on the judges alone, since the human check covered only planted items.
+\textbf{Summaries also invent rules.} The judges reported rules that match no instruction the user gave. Depending on model and condition, 16--57\% of summaries contained at least one, with 0.16--0.90 invented rules per summary. They were most common in Haiku's free summaries (0.90 per summary; 57\% of summaries) and least common in \emph{keep rules} (0.16 for Haiku, 0.30 for GLM), where the summariser is told to copy the user's own rules. Extraction and pinning added almost none: their counts are within 4\% of the sectioned summary they share (Haiku 0.33--0.35, GLM 0.57--0.58 per summary). Invented rules rest on the judges alone, since the human check covered only planted items.
 
 \subsection*{Does the template cause it? (H1, H2)}
 
-\textbf{H1 is supported.} Combined inflation was 19.0\% with the sectioned template and 12.8\% with a free summary, a difference of 6.1 percentage points [5.1, 7.2] (odds ratio 1.63, Holm $p < 10^{-43}$). The effect was similar for both models (+5.7 and +6.5 points).
+\textbf{H1 is supported.} Combined inflation was 19.0\% with the sectioned template and 12.8\% with a free summary, a difference of 6.1 percentage points [5.1, 7.2] (odds ratio 1.63, Holm $p < 10^{-43}$; Fig.~\ref{fig:forest}; Supplementary Tables S7 and S8). The effect was similar for both models (+5.7 and +6.5 points).
 
-\textbf{H2 is supported in both parts.} Removing the constraints section lowered combined inflation by 2.6 points [1.1, 4.1] (odds ratio 1.21, Holm $p = 0.0004$). The effect was clear for Haiku (+3.8 [1.9, 5.6]) but not separately for GLM (+1.5 [$-$0.1, 3.1]). The word limit made no meaningful difference: \emph{free\_limited} minus \emph{free} was $-$0.7 points [$-$1.3, 0.0], inside the preregistered $\pm$3-point band.
+\textbf{H2 is supported in both parts.} Removing the constraints section lowered combined inflation by 2.6 points [1.1, 4.1] (odds ratio 1.21, Holm $p = 0.0004$). The effect was clear for Haiku (+3.8 [1.9, 5.6]) but not separately for GLM (+1.5 [$-$0.1, 3.1]). The word limit made no meaningful difference: \emph{free (250 words)} minus \emph{free} was $-$0.7 points [$-$1.3, 0.0], inside the preregistered $\pm$3-point band.
 
 The section changes which inflation occurs more than how much. Without it, promoted one-offs fell from 20.0\% to 3.1\% (Haiku) and from 23.1\% to 8.8\% (GLM), but hardened preferences rose, from 43.9\% to 51.0\% and from 49.9\% to 62.4\%.
 
@@ -161,7 +160,7 @@ In exploratory terms, medium and long sessions had somewhat more combined inflat
 
 \subsection*{Does inflation change behaviour? (H5)}
 
-\textbf{H5 is supported.} With the full history, the agent carried a one-off beyond its occasion in 0.7\% of episodes. Compaction-induced behavioural inflation was 2.0 points [0.3, 4.4] for \emph{sectioned}, 2.7 [0.9, 5.0] for \emph{extractor} and 3.3 [1.4, 5.8] for \emph{pinning} (odds ratios 4.2, 6.0 and 8.1; Holm $p < 10^{-11}$). The estimate was positive for every model and condition in H5, though the interval for Haiku's sectioned summaries alone included zero (+1.4 [$-$0.6, 3.9]).
+\textbf{H5 is supported.} With the full history, the agent carried a one-off beyond its occasion in 0.7\% of episodes (Supplementary Table S6). Compaction-induced behavioural inflation was 2.0 points [0.3, 4.4] for \emph{sectioned}, 2.7 [0.9, 5.0] for \emph{extractor} and 3.3 [1.4, 5.8] for \emph{pinning} (odds ratios 4.2, 6.0 and 8.1; Holm $p < 10^{-11}$; Fig.~\ref{fig:behaviour}). The estimate was positive for every model and condition in H5, though the interval for Haiku's sectioned summaries alone included zero (+1.4 [$-$0.6, 3.9]).
 
 \begin{figure}[!htbp]
 \centering
@@ -173,7 +172,7 @@ The ordering matches the labels, but the behavioural rates are about an order of
 
 \subsection*{Controls (H6)}
 
-\textbf{H6 is not supported: 6 of 28 model--condition cells fail, all of them in conditions that copy or re-list instructions.} Softening stayed at or below 0.3\% in all 14 cells. Stale values stayed below 1\% (upper bounds below 2\%) in all eight cells of \emph{free}, \emph{free\_limited}, \emph{sectioned} and \emph{sectioned\_noconstraints}. They failed in \emph{pinning} (69.0\% Haiku, 94.0\% GLM), \emph{keep\_rules} (33.5\%, 10.7\%) and \emph{extractor} (11.7\%, and 4.9\% with an upper bound of 7.2\%). The controls therefore behave as intended for plain summaries, which is consistent with judges that do not over-flag; stale values return only where a copied or extracted instruction list keeps the superseded value next to the new one.
+\textbf{H6 is not supported: 6 of 28 model--condition cells fail, all of them in conditions that copy or re-list instructions.} Softening stayed at or below 0.3\% in all 14 cells (Fig.~\ref{fig:controls}). Stale values stayed below 1\% (upper bounds below 2\%) in all eight cells of \emph{free}, \emph{free (250 words)}, \emph{sectioned} and \emph{sectioned (no Constraints)}. They failed in \emph{pinning} (69.0\% Haiku, 94.0\% GLM), \emph{keep rules} (33.5\%, 10.7\%) and \emph{extractor} (11.7\%, and 4.9\% with an upper bound of 7.2\%). The controls therefore behave as intended for plain summaries, which is consistent with judges that do not over-flag; stale values return only where a copied or extracted instruction list keeps the superseded value next to the new one.
 
 \begin{figure}[!htbp]
 \centering
@@ -196,15 +195,13 @@ Four of the six preregistered hypotheses were supported. The two that were not f
 
 \textbf{Where inflation comes from.} The ablations separate three possible causes: a section that invites rules, a word limit that strips hedges and scope words, and the act of summarising itself. The data point to two mechanisms, not three. The word limit does not matter. The constraints section drives promotion: removing it cut promoted one-offs by 85\% (Haiku) and 62\% (GLM). Hardening, by contrast, does not need the section. It was common in every condition and rose when the section was removed, which suggests that summarisers drop hedges as a matter of style, wherever a preference ends up. Scope cues matter most of all: a one-off whose scope follows only from its reason was promoted about 2.6 times as often (odds ratio 7.2). This suggests two remedies, which we have not tested: keep each rule's scope and lifetime next to it, and instruct summarisers to keep hedges and to record when an instruction ends.
 
-\textbf{What the fixes trade.} Extraction and pinning were built to stop rules from disappearing. On our sessions they had nothing to save, because the plain sectioned summary already lost almost nothing, yet they raised combined inflation by 4 and 22 points and kept replaced values as current in 5--94\% of cases. Listing instructions without their scope is the mechanism: a pinned list cannot tell a one-off, a finished task or a superseded value from a standing rule. Even a one-line instruction to copy rules word for word (\emph{keep\_rules}) made Haiku list a quarter of task requests as rules and keep a third of replaced values. For the two models we tested and sessions like ours, these fixes are a cost without a measurable benefit. A fix should carry each rule's scope and lifetime with it, not only its words.
+\textbf{What the fixes trade.} Extraction and pinning were built to stop rules from disappearing. On our sessions they had nothing to save, because the plain sectioned summary already lost almost nothing, yet they raised combined inflation by 4 and 22 points and kept replaced values as current in 5--94\% of cases. Listing instructions without their scope is the mechanism: a pinned list cannot tell a one-off, a finished task or a superseded value from a standing rule. Even a one-line instruction to copy rules word for word (\emph{keep rules}) made Haiku list a quarter of task requests as rules and keep a third of replaced values. For the two models we tested and sessions like ours, these fixes are a cost without a measurable benefit. A fix should carry each rule's scope and lifetime with it, not only its words.
 
-\textbf{The models differ; the pattern does not.} GLM inflated more overall, and pinning hurt it most (51\% combined inflation). For Haiku, \emph{keep\_rules} was nearly as harmful as pinning (27\% against 32\%). Which fix is worst depends on the model, but in both families pinning raised inflation sharply, and every method that copies or re-lists instructions kept replaced values as current far more often than plain summaries.
+\textbf{The models differ; the pattern does not.} GLM inflated more overall, and pinning hurt it most (51\% combined inflation). For Haiku, \emph{keep rules} was nearly as harmful as pinning (27\% against 32\%). Which fix is worst depends on the model, but in both families pinning raised inflation sharply, and every method that copies or re-lists instructions kept replaced values as current far more often than plain summaries.
 
 \textbf{When inflation matters.} A rule written larger than intended is harmless if the agent never acts on it. Compaction did make the agent act on inflated one-offs more often, in the same order as the labels, but the behavioural rates were about a tenth of the promotion rates. Agents often rely on the task and the tools in front of them rather than on their summary: our agent called the probed tool in only 55--64\% of episodes. Inflated rules therefore change actions sometimes, not usually. Because long sessions are compacted repeatedly and agents act on many rules, a small per-rule rate can still add up, and the gap itself is a finding: summaries overstate rules far more often than agents follow them.
 
-\subsection*{Limitations}
-
-\textbf{Synthetic sessions.} The sessions are generated from templates, not taken from real users. This gives us known correct labels and balanced factors, but real sessions are messier, and the rates we report may not transfer directly. Checking inflation on real compaction logs is the most important next step.
+\textbf{Limitations.} \textbf{Synthetic sessions.} The sessions are generated from templates, not taken from real users. This gives us known correct labels and balanced factors, but real sessions are messier, and the rates we report may not transfer directly. Checking inflation on real compaction logs is the most important next step.
 
 \textbf{Two summarisers.} We test one small commercial model and one open model, both fast, low-cost models. Stronger models may inflate less, or differently. The 80 templates cover many situations but not all of them.
 
@@ -218,9 +215,7 @@ Four of the six preregistered hypotheses were supported. The two that were not f
 
 \textbf{Moving model names.} One provider serves its model under a name without a version number. We record the dates on which it served DeepSeek-V4.1-Flash, but a rerun later may reach a newer model.
 
-\subsection*{Conclusion}
-
-Compaction can fail in two directions. It can forget what the user said, and it can remember it too strongly. The first failure has a growing set of benchmarks and fixes; the second has had none. InflateBench measures it: four kinds of inflation, two controls, seven compaction methods, and a test of whether inflated rules change what the agent does.
+\textbf{Conclusion.} Compaction can fail in two directions. It can forget what the user said, and it can remember it too strongly. The first failure has a growing set of benchmarks and fixes; the second has had none. InflateBench measures it: four kinds of inflation, two controls, seven compaction methods, and a test of whether inflated rules change what the agent does.
 
 Across two model families, summaries kept almost every instruction but inflated many of them, and two published fixes for loss made inflation much worse without a measurable benefit. Agent builders should evaluate compaction for precision as well as recall and keep each rule's scope and lifetime with it; users can lower the risk by giving one-off instructions an explicit scope.
 
@@ -265,7 +260,7 @@ A further 40 sessions, generated with a separate seed and kept private, form a h
 
 \subsection*{Compaction conditions}
 
-We compact every session in seven ways. The prompts are our own and are released with the benchmark.
+We compact every session in seven ways (Table~\ref{tab:conditions}). The prompts are our own and are released with the benchmark.
 
 \begin{table}[!htbp]
 \centering
@@ -275,10 +270,10 @@ We compact every session in seven ways. The prompts are our own and are released
 Condition & What the summariser is asked to do \\
 \midrule
 free & Summarise the conversation so the work can continue \\
-free\_limited & The same, within 250 words \\
+free (250 words) & The same, within 250 words \\
 sectioned & Fill five sections (Goal; Constraints \& Preferences; Progress; Key Decisions; Next Steps) within 250 words \\
-sectioned\_noconstraints & The same template without the Constraints \& Preferences section \\
-keep\_rules & The sectioned template, plus: copy every user rule word for word \\
+sectioned (no Constraints) & The same template without the Constraints \& Preferences section \\
+keep rules & The sectioned template, plus: copy every user rule word for word \\
 extractor & The sectioned summary, plus a separate call that lists the user's standing constraints after it \\
 pinning & Constraints are extracted once from the user's messages, pinned, and re-inserted verbatim after each compaction \\
 \bottomrule
@@ -302,7 +297,7 @@ The judges apply the entry-by-entry rule from \emph{Constraint inflation} (Resul
 
 \subsection*{Human validation}
 
-Before judging at scale, one annotator labelled a sample of 200 items, 100 from each model's summaries, stratified by item type and condition, with model and condition hidden. The annotator followed a one-page guide with the same definitions as the judges. The preregistered gate was a judge--human Cohen's kappa of at least 0.7.
+Before judging at scale, one annotator labelled a sample of 200 items, 100 from each model's summaries, stratified by item type and condition, with model and condition hidden. The annotator followed a one-page guide with the same definitions as the judges (Supplementary Tables S2--S4). The preregistered gate was a judge--human Cohen's kappa of at least 0.7.
 
 The first check failed: kappa was 0.56, although raw agreement was 0.92. Most disagreements came from items shown in more than one place in a context, and from bare instructions under a mixed \emph{Constraints \& Preferences} heading, cases the rubric did not settle consistently. We revised the rubric to the entry-by-entry rule of \emph{Constraint inflation} (Results) and re-validated on a fresh sample of 100 items, drawn with a new seed and excluding the first 200. Kappa was 0.68 (raw agreement 0.90), narrowly below the gate, and the remaining disagreements were balanced in direction, five each way. Re-judging the first sample with the revised rubric gave kappa 0.67, which we report only as a diagnostic, since that sample informed the revision.
 
@@ -328,7 +323,7 @@ We preregistered six hypotheses before collecting any main-run data:
 
 \begin{itemize}
 \item \textbf{H1.} \emph{sectioned} produces more combined inflation than \emph{free}.
-\item \textbf{H2.} The constraints section drives this: \emph{sectioned} inflates more than \emph{sectioned\_noconstraints}, while \emph{free\_limited} does not differ meaningfully from \emph{free} (within $\pm$3 percentage points).
+\item \textbf{H2.} The constraints section drives this: \emph{sectioned} inflates more than \emph{sectioned (no Constraints)}, while \emph{free (250 words)} does not differ meaningfully from \emph{free} (within $\pm$3 percentage points).
 \item \textbf{H3.} \emph{extractor} and \emph{pinning} reduce loss but increase combined inflation relative to \emph{sectioned}.
 \item \textbf{H4.} Implicit scope cues lead to more promotion than explicit cues.
 \item \textbf{H5.} Compaction-induced behavioural inflation is above zero for \emph{sectioned}, \emph{extractor} and \emph{pinning}.
@@ -339,7 +334,7 @@ Five dated addenda record every change made before or during the main run: the m
 
 \subsection*{Use of AI tools}
 
-Claude (Anthropic) was used to assist with discussing the study design, developing the software, and drafting and revising the manuscript. The language models evaluated in this study, and those used as judges and as the agent in the behaviour test, are part of the method and are described in Methods. All content, analyses and conclusions were reviewed, verified and approved by the author, who takes full responsibility for the work.
+Claude (Anthropic) was used to assist with discussing the study design, developing the software, and drafting and revising the manuscript. The language models evaluated in this study, and those used as judges and as the agent in the behaviour test, are part of the method and are described above. All content, analyses and conclusions were reviewed, verified and approved by the author, who takes full responsibility for the work.
 
 % ---------------------------------------------------------------------------------------------
 \bibliography{references}
