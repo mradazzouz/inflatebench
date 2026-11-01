@@ -99,6 +99,12 @@ def main_judges(labels: Iterable[Label], roles: dict[str, str] | None = None) ->
     return (ranked[0], ranked[1]) if len(ranked) >= 2 else None
 
 
+def unflagged(labels: Iterable[Label], judge: str = FINAL) -> list[Label]:
+    """All labels but `judge`'s flagged ones (a quote that stayed unverified, or a label the
+    item's type does not allow): the flagged-labels robustness check."""
+    return [lab for lab in labels if not (lab.judge == judge and (lab.quote_flagged or lab.type_flagged))]
+
+
 def judges_agree(labels: Iterable[Label], judge: str, first: str, second: str) -> tuple[list[Label], int, int]:
     """`judge`'s labels on which the two main judges agreed, and how many items and invented
     rules were left out.
