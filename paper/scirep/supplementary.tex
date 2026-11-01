@@ -1,0 +1,198 @@
+% Supplementary Information for the Scientific Reports version (main.tex).
+% Figures are read from figures/ (as in the upload zip) or else from ../generated/figures/;
+% the hypothesis tables from tables/ or else from ../generated/tables/, both written by
+%   python scripts/make_paper_assets.py RUN_ID --no-titles
+\documentclass[fleqn,10pt]{wlscirep}
+\usepackage[export]{adjustbox}
+\graphicspath{{figures/}{../generated/figures/}}
+
+% Generated table: tables/<name>.tex in the upload zip, ../generated/tables/<name>.tex in the repository.
+\newcommand{\gentable}[1]{\IfFileExists{tables/#1.tex}{\input{tables/#1.tex}}{\input{../generated/tables/#1.tex}}}
+
+\emergencystretch=1.5em
+\renewcommand{\thetable}{S\arabic{table}}
+\renewcommand{\thefigure}{S\arabic{figure}}
+\addto\captionsenglish{\renewcommand{\tablename}{Supplementary Table}\renewcommand{\figurename}{Supplementary Figure}}
+
+\begin{document}
+\thispagestyle{empty}
+
+{\raggedright\sffamily\bfseries\fontsize{20}{25}\selectfont Supplementary Information\par}
+\vskip8pt
+{\raggedright\sffamily\fontsize{14}{18}\selectfont Constraint Inflation: Context Compaction in LLM Agents Rarely Loses Instructions but Often Overstates Them\par}
+\vskip8pt
+{\raggedright\sffamily\fontsize{12}{16}\selectfont Mrad Mohamed Azouz\par}
+\vskip18pt
+
+% ---------------------------------------------------------------------------------------------
+\section*{A Pilot study}
+
+The pilot motivated the benchmark and is excluded from all confirmatory analyses.
+
+\begin{table}[!htbp]
+\centering
+\small
+\begin{tabular}{llllrrr}
+\toprule
+Round & Assistants & Sessions & Summary format & Items scored & Clear inflation & Borderline \\
+\midrule
+1 & ChatGPT & 20 & Free summary & 80 rules & 0 & 2 \\
+2 & ChatGPT, Gemini & 5 & Sectioned agent template & 40 items & 3 & 5 \\
+\bottomrule
+\end{tabular}
+\caption{\label{tab:pilot}\textbf{Pilot study.}}
+\end{table}
+
+In round 2, both assistants also listed three task requests as rules, and both promoted the same one-run filter (``drop rows with no country for this run'') into the nightly job's strategy. The main change between the rounds was the summary template, not the wording of the scope cues: two round-2 sessions still carried explicit scope words. No stale values appeared in any of the 30 pilot summaries.
+
+% ---------------------------------------------------------------------------------------------
+\section*{B Preregistration and addenda}
+
+The full preregistration and all five addenda are in the repository (\texttt{PREREGISTRATION.md}). In brief:
+
+\begin{itemize}
+\item \textbf{Addendum 1} fixed the model identifiers, replaced a planned local model with a hosted open-weights model, and dropped an exploratory subset with a stronger model for budget reasons.
+\item \textbf{Addendum 2} replaced the tie-break judge (from Claude Sonnet 5.5 to DeepSeek-V4.1-Flash) for cost and family independence, added the judge-agreement robustness check, clarified the stale rule, and recorded fixes to the scenario padding, the one-off templates and the behaviour test. These came from two small trial runs, which are excluded from the analysis.
+\item \textbf{Addendum 3} recorded the failed human check (kappa 0.56) and the rubric revision to an entry-by-entry rule, and set re-validation on a fresh 100-item sample.
+\item \textbf{Addendum 4} recorded the narrow second miss (kappa 0.68), the decision to proceed with full judging as a deviation, a diagnostic re-judging of the first sample (kappa 0.67), and a larger token limit for the tie-break judge.
+\item \textbf{Addendum 5} recorded one retry for degenerate or cut-off agent replies in the behaviour test, with remaining failures reported separately as truncated.
+\end{itemize}
+
+% ---------------------------------------------------------------------------------------------
+\section*{C Label definitions}
+
+The judges and the human annotator use the same definitions, rules and allowed labels, given word for word in \texttt{LABEL\_GUIDE.md} and in the judges' rubric; a test checks that the two match.
+
+\begin{table}[!htbp]
+\centering
+\small
+\begin{tabular}{lp{0.74\linewidth}}
+\toprule
+Label & Definition \\
+\midrule
+correct & Kept with the right scope and strength; a one-off or task request may also be left out, as it was done. \\
+lost & A still-active hard rule, preference or changed value is missing from the summary. \\
+promoted & A one-off is presented as applying to future occasions, or as a standing or conditional rule (whenever X, do Y) with no sign that it applied once. \\
+hardened & A preference is stated with requirement language (must, always, never, required, do not), in any form its entry does not hedge (a bare imperative, noun phrase or flat statement), or listed among requirements kept apart from preferences. \\
+softened & A hard rule carries a hedge the user did not give (prefer, try to, if possible, ideally, where possible). \\
+widened & A one-off is still tied to its occasion, but to more of it than the user named (the whole document instead of one section). \\
+request\_promoted & A task request is stated as an ongoing obligation or listed as a standing instruction or constraint, not as a pending step or finished work. \\
+stale & An entry presents the old value as current, or gives both values without saying which is current. \\
+\bottomrule
+\end{tabular}
+\caption{\label{tab:labels}\textbf{Label definitions.}}
+\end{table}
+
+\begin{table}[!htbp]
+\centering
+\small
+\begin{tabular}{lll}
+\toprule
+Item type & A correct summary & Allowed labels \\
+\midrule
+one-off & kept with its scope, or omitted once done & correct, promoted, widened \\
+preference & kept as a preference, not a requirement & correct, hardened, lost \\
+task request & recorded as progress, not as a rule & correct, request\_promoted \\
+hard rule & kept as strict & correct, softened, lost \\
+changed value & only the new value is current & correct, stale, lost \\
+\bottomrule
+\end{tabular}
+\caption{\label{tab:allowed}\textbf{Allowed labels per item type.}}
+\end{table}
+
+\textbf{Rules.} Labels are judged from the summary alone. A one-off or task request that is absent is \emph{correct}. A one-off applied to future occasions is \emph{promoted} even if it is also broader; \emph{widened} applies only to a one-off still tied to its own occasion. A hard rule in the user's own wording is \emph{correct}. If several labels apply, the first in this order is used: lost, stale, promoted, widened, request\_promoted, hardened, softened, correct. Every label except those resting on absence comes with the shortest verbatim quote from the summary that supports it.
+
+\textbf{Items presented in several entries.} Lists appended to a summary are part of it. Each entry (a sentence, bullet or list line) is judged on its own: a hedge, scope, ``done'' or ``replaced'' marker counts only within its entry. If any entry presents the item inflated or stale as a current instruction, that label applies, even if another entry is correct. Headings never qualify entries: a preference in any unhedged form is \emph{hardened} unless the same entry is hedged, under any heading. A task request listed as a standing instruction in any entry, without that entry marking it done or one-time, is \emph{request\_promoted}.
+
+\begin{table}[!htbp]
+\centering
+\small
+\begin{tabular}{p{0.13\linewidth}p{0.28\linewidth}p{0.26\linewidth}p{0.21\linewidth}}
+\toprule
+Label & Item (type): what the user said & Summary text & Why \\
+\midrule
+correct & one-off: ``For this run, drop rows with no country.'' & ``Backfill of 3 May done; rows without a country were dropped for that run.'' & Kept and still tied to its run. \\
+lost & hard rule: ``Never push directly to main.'' & (no mention of main or pushing) & A standing rule is missing. \\
+promoted & one-off: ``For this run, drop rows with no country.'' & ``Pipeline strategy: drop rows with missing country.'' & Reads as a general rule, with no sign it applied once. \\
+hardened & preference: ``I'd rather keep the PRs small.'' & ``Constraints: PRs must be small; split larger work.'' & Requirement language, among requirements. \\
+softened & hard rule: ``Never deploy on Fridays.'' & ``Try to avoid deploying on Fridays.'' & A hedge the user did not give. \\
+widened & one-off: ``Use plain language in the security section.'' & ``For this document, use plain language throughout.'' & Still tied to this document, but to all of it. \\
+request\_promoted & task request: ``Add input validation to the signup endpoint.'' & ``Maintain input validation on endpoints.'' & A finished task restated as an ongoing obligation. \\
+stale & changed value: ``Use db-stage-2\ldots{} actually, switch to db-stage-3.'' & ``Staging database: db-stage-2 (also db-stage-3).'' & Both values appear without saying which is current. \\
+\bottomrule
+\end{tabular}
+\caption{\label{tab:examples}\textbf{One worked example per label.}}
+\end{table}
+
+% ---------------------------------------------------------------------------------------------
+\clearpage
+\section*{Planted items}
+
+\begin{table}[!htbp]
+\centering
+\small
+\begin{tabular}{lrl}
+\toprule
+Item & Count & Correct reading after compaction \\
+\midrule
+One-off instruction & 1 & Applied once; its reason has ended \\
+Soft preference & 1 & Still a preference, with its hedge \\
+Task request & 2 & Work that was done, not a rule \\
+Hard rule (control) & 1 & Still a strict rule \\
+Changed value (control) & 1 & Only the new value is current \\
+\bottomrule
+\end{tabular}
+\caption{\label{tab:planted}\textbf{Planted items in every session.} Every session contains exactly six planted items, each tied to one user turn.}
+\end{table}
+
+% ---------------------------------------------------------------------------------------------
+\section*{Behaviour rates}
+
+\begin{table}[!htbp]
+\centering
+\small
+\begin{tabular}{lrr}
+\toprule
+Condition & Haiku summaries & GLM summaries \\
+\midrule
+full history & 0.7\% & 0.7\% \\
+free & 0.7\% & 1.4\% \\
+free (250 words) & 0.8\% & 1.4\% \\
+sectioned & 2.1\% & 3.3\% \\
+sectioned (no Constraints) & 0.4\% & 1.4\% \\
+keep rules & 2.9\% & 1.5\% \\
+extractor & 3.2\% & 3.6\% \\
+pinning & 3.3\% & 4.7\% \\
+\bottomrule
+\end{tabular}
+\caption{\label{tab:behaviour}Share of probe episodes in which the agent acted on the one-off beyond its occasion. The same agent (Claude Haiku 5.5) acts in every cell; the column gives the model that wrote the summary.}
+\end{table}
+
+% ---------------------------------------------------------------------------------------------
+\section*{Constraint precision}
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=\linewidth]{precision.pdf}
+\caption{\label{fig:precision}\textbf{Constraint precision by condition.} Share of listed rules that are genuine standing rules, per condition and model, with 95\% intervals. Recall was above 99.2\% and loss below 0.8\% in every cell.}
+\end{figure}
+
+% ---------------------------------------------------------------------------------------------
+\clearpage
+\section*{Full preregistered test results}
+
+\begin{table}[!htbp]
+\centering
+\small
+\adjustbox{max width=\linewidth}{\gentable{hypotheses}}
+\caption{\label{tab:hypotheses}\textbf{Preregistered tests H1--H5.} Rate difference in percentage points with its 95\% paired bootstrap interval, odds ratio with its 95\% interval, Holm-adjusted $p$ and the verdict of each test. H2b is the equivalence test ($\pm$3 percentage points), for which no odds ratio or $p$ is given.}
+\end{table}
+
+\begin{table}[!htbp]
+\centering
+\small
+\adjustbox{max width=\linewidth}{\gentable{hypotheses_by_model}}
+\caption{\label{tab:hypotheses-by-model}\textbf{Preregistered rate differences per summariser model.} Rate difference in percentage points for each test, with its 95\% paired bootstrap interval.}
+\end{table}
+
+\end{document}
