@@ -12,7 +12,7 @@ Long-running language-model agents compress their conversation history when it n
 
 We introduce InflateBench, a benchmark of 240 agent sessions across five kinds of work, each with six planted items whose correct scope is known. We compare seven ways of compacting a session, including two published fixes for instruction loss, using two models from different families. Two independent model judges label every planted item, a third breaks ties, and a human annotator checks a stratified sample. A behaviour probe then tests whether the agent acts on an inflated rule in its next task, against a baseline that sees the full history. All hypotheses and analyses were preregistered.
 
-Summaries almost never lost a standing instruction (at most 0.7% in any condition), but they inflated 13% of eligible items with a free summary and 19% with a sectioned template, mostly by turning preferences into requirements. The template's constraints section and implicit scope cues drove promotion: a one-off without a scope word was promoted to a standing rule in 30% of cases, against 12% with one. The two published fixes for loss had no loss left to prevent, yet raised inflation to 23% (extraction) and 41% (pinning) and kept replaced values as current in up to 94% of cases. In the behaviour test, compaction with pinning made the agent repeat a one-off beyond its occasion about six times as often as with the full history, but still in only 4.0% of episodes. We release the benchmark, code and data.
+Summaries almost never lost a standing instruction (below 0.8% in every condition), but they inflated 13% of eligible items with a free summary and 19% with a sectioned template, mostly by turning preferences into requirements. The template's constraints section and implicit scope cues drove promotion: a one-off without a scope word was promoted to a standing rule in 30% of cases, against 12% with one. The two published fixes for loss had no loss left to prevent, yet raised inflation to 23% (extraction) and 41% (pinning) and kept replaced values as current in up to 94% of cases. In the behaviour test, compaction with pinning made the agent repeat a one-off beyond its occasion about six times as often as with the full history, but still in only 4.0% of episodes. We release the benchmark, code and data.
 
 ## 1 Introduction
 
@@ -187,7 +187,7 @@ The two main judges gave the same label to 94.2% of items; the tie-break judge d
 
 ### 6.2 How often summaries inflate
 
-**Summaries kept almost every instruction but inflated many of them.** Loss was at most 0.7% in any model and condition, and below 0.15% in 12 of 14 cells; constraint recall was at least 99.3% everywhere. Inflation was common. With a free summary, 11.7% (Haiku) and 14.0% (GLM) of eligible items were inflated. Most of it was hardening: 39% and 45% of preferences lost their hedge. Promotion affected 6–9% of one-offs, request promotion about 1% of tasks, and widening stayed below 0.5% in every condition. Constraint precision, the share of listed rules that are genuine standing rules, ranged from 88% down to 40% (Table 2).
+**Summaries kept almost every instruction but inflated many of them.** Loss was below 0.8% in every model and condition, and below 0.15% in 12 of 14 cells; constraint recall was above 99.2% everywhere. Inflation was common. With a free summary, 11.7% (Haiku) and 14.0% (GLM) of eligible items were inflated. Most of it was hardening: 39% and 45% of preferences lost their hedge. Promotion affected 6–9% of one-offs, request promotion about 1% of tasks, and widening stayed below 0.5% in every condition. Constraint precision, the share of listed rules that are genuine standing rules, ranged from 88% down to 40% (Table 2).
 
 | Condition | Combined inflation, Haiku | Combined inflation, GLM | Loss, Haiku / GLM | Precision, Haiku / GLM |
 | --- | --- | --- | --- | --- |
@@ -199,11 +199,11 @@ The two main judges gave the same label to 94.2% of items; the tie-break judge d
 | extractor | 19.2% | 27.1% | 0.0% / 0.0% | 79% / 72% |
 | pinning | 32.3% | 50.6% | 0.0% / 0.0% | 55% / 40% |
 
-*Table 2. Combined inflation (share of eligible one-offs, preferences and task requests inflated), loss of active instructions, and constraint precision, per condition and model. Recall was at least 99.3% in every cell.*
+*Table 2. Combined inflation (share of eligible one-offs, preferences and task requests inflated), loss of active instructions, and constraint precision, per condition and model. Recall was above 99.2% in every cell.*
 
 &#91;Figure 1: *Inflation rate by type.* Share of eligible items labelled promoted, widened, hardened or request promoted, per condition, for Claude Haiku 5.5 (left) and GLM-5.3-Flash (right), with 95% template-clustered bootstrap intervals.\]
 
-&#91;Figure 2: *Constraint precision by condition.* Share of listed rules that are genuine standing rules, per condition and model, with 95% intervals. Recall was at least 99.3% and loss at most 0.7% in every cell.\]
+&#91;Figure 2: *Constraint precision by condition.* Share of listed rules that are genuine standing rules, per condition and model, with 95% intervals. Recall was above 99.2% and loss below 0.8% in every cell.\]
 
 **Summaries also invent rules.** The judges reported rules that match no instruction the user gave. Depending on model and condition, 16–57% of summaries contained at least one, with 0.16–0.90 invented rules per summary. They were most common in Haiku's free summaries (0.90 per summary; 57% of summaries) and least common in *keep\_rules* (0.16 for Haiku, 0.30 for GLM), where the summariser is told to copy the user's own rules. Extraction and pinning added almost none: their counts are within 4% of the sectioned summary they share (Haiku 0.33–0.35, GLM 0.57–0.58 per summary). Invented rules rest on the judges alone, since the human check covered only planted items.
 
@@ -254,7 +254,7 @@ The ordering matches the labels, but the behavioural rates are about an order of
 
 **H6 is not supported: 6 of 28 model–condition cells fail, all of them in conditions that copy or re-list instructions.** Softening stayed at or below 0.3% in all 14 cells. Stale values stayed below 1% (upper bounds below 2%) in all eight cells of *free*, *free\_limited*, *sectioned* and *sectioned\_noconstraints*. They failed in *pinning* (69.0% Haiku, 94.0% GLM), *keep\_rules* (33.5%, 10.7%) and *extractor* (11.7%, and 4.9% with an upper bound of 7.2%). The controls therefore behave as intended for plain summaries, which is consistent with judges that do not over-flag; stale values return only where a copied or extracted instruction list keeps the superseded value next to the new one.
 
-&#91;Figure 5: *Control errors and loss.* Softened hard rules, stale values and lost instructions per condition and model, with 95% intervals. Bars below 1% are not visible at this scale.\]
+&#91;Figure 5: *Control errors and loss.* Softened hard rules, stale values and lost instructions per condition and model, with 95% intervals. Bars below about 3% may not be visible at this scale; the text gives every rate.\]
 
 ### 6.8 Robustness
 
@@ -266,7 +266,7 @@ The p-values come from an approximate fit of the mixed-effects models and should
 
 Four of the six preregistered hypotheses were supported. The two that were not fail for informative reasons: loss was too rare for the fixes to reduce it (H3), and the controls failed only where instructions are copied or re-listed (H6).
 
-**Loss and inflation should be measured together.** A summary that keeps every rule at the wrong size scores perfectly on a loss benchmark. In our data, recall was at least 99.3% in every condition while precision ranged from 88% to 40%. Evaluations of compaction need a precision measure alongside recall, and InflateBench's constraint precision is one way to provide it.
+**Loss and inflation should be measured together.** A summary that keeps every rule at the wrong size scores perfectly on a loss benchmark. In our data, recall was above 99.2% in every condition while precision ranged from 88% to 40%. Evaluations of compaction need a precision measure alongside recall, and InflateBench's constraint precision is one way to provide it.
 
 **Where inflation comes from.** The ablations separate three possible causes: a section that invites rules, a word limit that strips hedges and scope words, and the act of summarising itself. The data point to two mechanisms, not three. The word limit does not matter. The constraints section drives promotion: removing it cut promoted one-offs by 85% (Haiku) and 62% (GLM). Hardening, by contrast, does not need the section. It was common in every condition and rose when the section was removed, which suggests that summarisers drop hedges as a matter of style, wherever a preference ends up. Scope cues matter most of all: a one-off whose scope follows only from its reason was promoted about 2.6 times as often (odds ratio 7.2). This suggests two remedies, which we have not tested: keep each rule's scope and lifetime next to it, and instruct summarisers to keep hedges and to record when an instruction ends.
 
