@@ -16,7 +16,7 @@
 
 \title{Constraint Inflation: Context Compaction in LLM Agents Rarely Loses Instructions but Often Overstates Them}
 
-\author[1,*]{Mrad Mohamed Azouz}
+\author[1,*]{Mohamed Azouz Mrad}
 \affil[1]{Department of Automation and Applied Informatics, Faculty of Electrical Engineering and Informatics, Budapest University of Technology and Economics, M\H{u}egyetem rkp. 3, Budapest, 1111, Hungary}
 \affil[*]{mrad.mohamed.azouz@vik.bme.hu}
 
@@ -211,7 +211,7 @@ Four of the six preregistered hypotheses were supported. The two that were not f
 
 \textbf{Two summarisers.} We test one small commercial model and one open model, both fast, low-cost models. Stronger models may inflate less, or differently. The 80 templates cover many situations but not all of them.
 
-\textbf{Model judges.} Labels come from model judges. Their agreement with a human annotator reached kappa 0.68 on a fresh sample, narrowly below our preregistered gate of 0.7, and the check used one annotator. Many disagreements are genuinely close calls, especially hardened against correct. Because the remaining disagreements were balanced in direction, we do not expect a systematic bias in the estimated rates, and the robustness analysis on judge-agreed items tests this. In the trial runs, the tie-break judge leaned towards \emph{correct} on close calls, which would make our estimates conservative. With a single annotator, we cannot separate judge error from genuine ambiguity on which two people would also disagree. Invented rules were not part of the human check.
+\textbf{Model judges.} Labels come from model judges. Their agreement with a human annotator reached kappa 0.68 on a fresh sample, narrowly below our preregistered gate of 0.7, and the check used one annotator (the author). Many disagreements are genuinely close calls, especially hardened against correct. Because the remaining disagreements were balanced in direction, we do not expect a systematic bias in the estimated rates, and the robustness analysis on judge-agreed items tests this. In the trial runs, the tie-break judge leaned towards \emph{correct} on close calls, which would make our estimates conservative. With a single annotator, we cannot separate judge error from genuine ambiguity on which two people would also disagree. Invented rules were not part of the human check.
 
 \textbf{Format differences.} The judges see a neutral format, but the free summary's own writing style still differs from the template's sections. The three conditions that share a summary (\emph{sectioned}, \emph{extractor}, \emph{pinning}) are compared on identical summaries, so differences between them cannot come from writing style.
 
@@ -333,7 +333,7 @@ We preregistered six hypotheses before collecting any main-run data:
 \item \textbf{H3.} \emph{extractor} and \emph{pinning} reduce loss but increase combined inflation relative to \emph{sectioned}.
 \item \textbf{H4.} Implicit scope cues lead to more promotion than explicit cues.
 \item \textbf{H5.} Compaction-induced behavioural inflation is above zero for \emph{sectioned}, \emph{extractor} and \emph{pinning}.
-\item \textbf{H6 (controls).} Softened hard rules and stale values each stay below 5\%.
+\item \textbf{H6 (controls).} Softened hard rules and stale values each stay below 5\% in every model--condition cell (upper limit of the 95\% bootstrap interval).
 \end{itemize}
 
 Five dated addenda record every change made before or during the main run: the model choices; the change of tie-break judge; fixes to the scenarios and the behaviour test found in two small trial runs, which are excluded from all analyses; the rubric revision after the failed human check and the decision to proceed after the narrow second miss; and the handling of truncated agent episodes.
@@ -348,21 +348,20 @@ Claude (Anthropic) was used to assist with discussing the study design, developi
 \section*{Data availability}
 
 \begin{sloppypar} % the unbreakable URL would otherwise overflow the first line
-The InflateBench benchmark (scenarios and generator) is available at \url{https://github.com/mradazzouz/inflatebench} (scenario data under CC BY 4.0). All model outputs (summaries, labels, probe episodes and reports) are archived at \textcolor{red}{[TODO: Zenodo DOI]}. The 40-session held-out set is kept private for future comparisons (Methods).
+The InflateBench benchmark (scenarios and generator) is available at \url{https://github.com/mradazzouz/inflatebench} (scenario data under CC BY 4.0). All model outputs (summaries, labels, probe episodes and reports) are archived at \textcolor{red}{\url{https://doi.org/10.5281/zenodo.23874942}}. The 40-session held-out set is kept private for future comparisons (Methods).
 \end{sloppypar}
 
 \section*{Code availability}
 
 The benchmark generator, the compaction, judging, behaviour-test and analysis code, and the scripts that produce every table and figure are available at \url{https://github.com/mradazzouz/inflatebench} under the MIT licence.
 
-\section*{Acknowledgements}
+%\section*{Acknowledgements}
 
-% TODO: acknowledgements.
-\textcolor{red}{[TODO: acknowledgements.]}
+
 
 \section*{Author contributions}
 
-M.M.A. conceived the study, designed and ran the experiments, analysed the data and wrote the manuscript.
+M.A.M. conceived the study, designed and ran the experiments, analysed the data and wrote the manuscript.
 
 \section*{Competing interests}
 
@@ -370,11 +369,11 @@ The author declares no competing interests.
 
 \section*{Funding}
 
-% TODO: funding statement.
-\textcolor{red}{[TODO: funding.]}
+Project no. 2019-1.3.1-KK-2019-00004 has been implemented with the support provided from the National Research, Development and Innovation Fund of Hungary, financed under the 2019-1.3.1-KK funding scheme.
+
 
 \section*{Author information}
 
-\textbf{Corresponding author:} Mrad Mohamed Azouz (\href{mailto:mrad.mohamed.azouz@vik.bme.hu}{mrad.mohamed.azouz@vik.bme.hu}). ORCID: \href{https://orcid.org/0000-0001-5223-3680}{0000-0001-5223-3680}.
+\textbf{Corresponding author:}  Mohamed Azouz Mrad (\href{mailto:mrad.mohamed.azouz@vik.bme.hu}{mrad.mohamed.azouz@vik.bme.hu}). ORCID: \href{https://orcid.org/0000-0001-5223-3680}{0000-0001-5223-3680}.
 
 \end{document}
