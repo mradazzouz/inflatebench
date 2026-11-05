@@ -1,0 +1,66 @@
+{
+  "humans": {},
+  "human_vs_judge": {
+    "human:Azouz": {
+      "n": 100,
+      "unweighted_sample": {
+        "agreement": 0.9,
+        "kappa": 0.6836444163239482,
+        "per_label_kappa": {
+          "correct": 0.6612466124661247,
+          "promoted": 0.7286295793758477,
+          "hardened": 0.693251533742331,
+          "request_promoted": 0.6621621621621614,
+          "stale": 0.6621621621621614
+        }
+      },
+      "weighted_population": {
+        "agreement": 0.9047619047619048,
+        "kappa": 0.6574923547400611,
+        "per_label_kappa": {
+          "correct": 0.6359696641386783,
+          "promoted": 0.6449275362318843,
+          "hardened": 0.7214854111405835,
+          "request_promoted": 0.6612903225806464,
+          "stale": 0.6612903225806464
+        }
+      },
+      "confusion": {
+        "correct|correct": 77,
+        "correct|hardened": 3,
+        "correct|promoted": 1,
+        "correct|stale": 1,
+        "hardened|correct": 1,
+        "hardened|hardened": 5,
+        "promoted|correct": 3,
+        "promoted|promoted": 6,
+        "request_promoted|correct": 1,
+        "request_promoted|request_promoted": 1,
+        "stale|stale": 1
+      }
+    }
+  },
+  "gate": 0.7,
+  "gate_on": "unweighted_sample",
+  "basis": {
+    "unweighted_sample": "unweighted, on the stratified human-check sample; the kappa gate uses this",
+    "weighted_population": "weighted by the sample weights; an estimate for the full pool of items"
+  },
+  "passes": false,
+  "key": "annotation\\sample_key_v2.jsonl",
+  "labels": [
+    "annotation/Azouz-Labels-v2.jsonl"
+  ],
+  "runs": [
+    "main-haiku",
+    "main-glm"
+  ],
+  "judge_labels": {
+    "main-haiku": "runs\\main-haiku\\labels_sample_v2.jsonl",
+    "main-glm": "runs\\main-glm\\labels_sample_v2.jsonl"
+  },
+  "n_sample": 100,
+  "labelled": {
+    "human:Azouz": 100
+  }
+}

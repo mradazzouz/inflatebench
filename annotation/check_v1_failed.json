@@ -1,0 +1,65 @@
+{
+  "humans": {},
+  "human_vs_judge": {
+    "human:Azouz": {
+      "n": 200,
+      "unweighted_sample": {
+        "agreement": 0.915,
+        "kappa": 0.5555555555555558,
+        "per_label_kappa": {
+          "correct": 0.5395449620801736,
+          "promoted": 0.7237569060773479,
+          "hardened": 0.5558845299777938,
+          "request_promoted": 0.4962216624685143,
+          "stale": 0.0
+        }
+      },
+      "weighted_population": {
+        "agreement": 0.9166666666666666,
+        "kappa": 0.5523600067670442,
+        "per_label_kappa": {
+          "correct": 0.5357894736842104,
+          "promoted": 0.7265624999999996,
+          "hardened": 0.5481557377049174,
+          "request_promoted": 0.5374449339207037,
+          "stale": 0.0
+        }
+      },
+      "confusion": {
+        "correct|correct": 171,
+        "correct|hardened": 3,
+        "correct|promoted": 2,
+        "hardened|correct": 3,
+        "hardened|hardened": 4,
+        "promoted|correct": 3,
+        "promoted|promoted": 7,
+        "request_promoted|correct": 2,
+        "request_promoted|request_promoted": 1,
+        "stale|correct": 4
+      }
+    }
+  },
+  "gate": 0.7,
+  "gate_on": "unweighted_sample",
+  "basis": {
+    "unweighted_sample": "unweighted, on the stratified human-check sample; the kappa gate uses this",
+    "weighted_population": "weighted by the sample weights; an estimate for the full pool of items"
+  },
+  "passes": false,
+  "key": "annotation\\sample_key.jsonl",
+  "labels": [
+    "annotation/Azouz-Labels.jsonl"
+  ],
+  "runs": [
+    "main-haiku",
+    "main-glm"
+  ],
+  "judge_labels": {
+    "main-haiku": "runs\\main-haiku\\labels_sample.jsonl",
+    "main-glm": "runs\\main-glm\\labels_sample.jsonl"
+  },
+  "n_sample": 200,
+  "labelled": {
+    "human:Azouz": 200
+  }
+}

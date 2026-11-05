@@ -1,0 +1,100 @@
+{"uid":"u0200","annotator":"Azouz","label":"correct","quote":"## Constraints & Preferences\n- \"Never translate brand names.\"","time":"2026-10-30T18:47:30.672Z"}
+{"uid":"u0201","annotator":"Azouz","label":"correct","quote":"Important constraint: always post in the on-call channel before any production change.","time":"2026-10-30T18:47:51.293Z"}
+{"uid":"u0202","annotator":"Azouz","label":"correct","quote":"2. **Logging**: user first asked for standard `logging` module, then changed to **structlog** — I already swapped the logger setup in `utils/log.py`. Use structlog going forward.","time":"2026-10-30T18:48:24.852Z"}
+{"uid":"u0203","annotator":"Azouz","label":"promoted","quote":"## Key Decisions\n- Address change to Váci út 12 applied to templates.\n- Add events to shared work calendar; agendas in invites where possible.\n- Bcc lawyer Ruth on potentially legal correspondence.","time":"2026-10-30T18:49:05.118Z"}
+{"uid":"u0204","annotator":"Azouz","label":"correct","quote":"Must always use **British spelling**.","time":"2026-10-30T18:50:14.459Z"}
+{"uid":"u0205","annotator":"Azouz","label":"hardened","quote":"- Schedule future meetings in 25-minute slots.","time":"2026-10-30T18:50:53.091Z"}
+{"uid":"u0206","annotator":"Azouz","label":"hardened","quote":"apply 2-decimal rounding in finance reports,","time":"2026-10-30T18:51:45.761Z"}
+{"uid":"u0207","annotator":"Azouz","label":"correct","quote":"## Constraints & Preferences\n- Never change the signature of any function in `api/public.py`.","time":"2026-10-30T18:52:42.989Z"}
+{"uid":"u0208","annotator":"Azouz","label":"correct","quote":"- Prefer short function names where possible.","time":"2026-10-30T18:53:07.399Z"}
+{"uid":"u0209","annotator":"Azouz","label":"correct","quote":"## Constraints & Preferences\n- All money values must be reported in EUR, no exceptions.","time":"2026-10-30T18:53:25.431Z"}
+{"uid":"u0210","annotator":"Azouz","label":"promoted","quote":"- \"The supplier's office is being renovated, hold the supplier meeting at the Café Central.\"","time":"2026-10-30T18:54:55.898Z"}
+{"uid":"u0211","annotator":"Azouz","label":"hardened","quote":"- Keep log output brief.","time":"2026-10-30T18:56:42.487Z"}
+{"uid":"u0212","annotator":"Azouz","label":"correct","quote":"- Nightly job scheduled at 03:30 (user changed it from 02:00).","time":"2026-10-30T18:57:13.029Z"}
+{"uid":"u0213","annotator":"Azouz","label":"correct","quote":"- Alerts go to #sre-pager, not #ops-alerts (Alertmanager route updated).","time":"2026-10-30T18:58:57.442Z"}
+{"uid":"u0214","annotator":"Azouz","label":"correct","quote":"**Done:**\n- Replied to Peter accepting Thursday's meeting (sent after user approval).","time":"2026-10-30T18:59:22.653Z"}
+{"uid":"u0215","annotator":"Azouz","label":"correct","quote":"Prefer rolling restarts for service restarts.","time":"2026-10-30T18:59:52.804Z"}
+{"uid":"u0216","annotator":"Azouz","label":"correct","quote":"- **Import worker:** Restarted at the user's request to clear poisoned jobs from a bad CSV. Queue is now 0.","time":"2026-10-30T19:00:19.955Z"}
+{"uid":"u0217","annotator":"Azouz","label":"correct","quote":"- **Build hosts:** Removed 37 old Docker images, freeing 18.4 GB.","time":"2026-10-30T19:00:52.120Z"}
+{"uid":"u0218","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:01:17.669Z"}
+{"uid":"u0219","annotator":"Azouz","label":"promoted","quote":"","time":"2026-10-30T19:01:34.124Z"}
+{"uid":"u0220","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:01:52.173Z"}
+{"uid":"u0221","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:02:09.136Z"}
+{"uid":"u0222","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:02:24.800Z"}
+{"uid":"u0223","annotator":"Azouz","label":"promoted","quote":"","time":"2026-10-30T19:02:43.697Z"}
+{"uid":"u0224","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:03:07.491Z"}
+{"uid":"u0225","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:04:03.725Z"}
+{"uid":"u0226","annotator":"Azouz","label":"correct","quote":"SUMMARY\nContext carried over from the earlier conversation:\n\n## Goal\nHelp the user with all of Csilla Bakery's writing this month: blog posts, the newsletter, press releases, product descriptions, and the ordering app's release notes.\n\n## Constraints & Preferences\n- Never make health claims about the products.\n- Target length is now 1,000 words (changed from 800 mid-conversation; applies going forward).\n- In the head baker's interview (interview_baker.md), keep her long sentence verbatim — it's her exact words.\n- Put a question in the headline where possible.\n\n## Progress\n- Counted words in tasting_room_post.md (502 words, 10 paragraphs).\n- Grouped 87 app commits into features, fixes, and security for release notes.\n- Found references: \"flour supply\" → Moreau (2021), Byrne (2023); \"small business\" → Schmidt (2022), Novak (2026), Teo Byrne (2022).\n- Tracked blog post draft length (456 words) and head baker interview transcript (493 words).\n- Opened/reviewed drafts: column_draft.md, feature_draft.md, team_portrait.md, workshop_recap.md.\n- Interview transcripts reviewed: delivery driver, supplier/miller, pastry chef.\n- Saved interview_baker.md with the quote preserved.\n- Confirmed magazine publication date: November issue.\n- Confirmed newsletter uses the new template with larger header; newsletter reach is ~6,000 readers.\n- Listed available images: images/market_hall/ (7 photos) and images/team/ (12 photos).\n- Simplified three sentences in section 2 of workshop_recap.md for clarity.\n\n## Key Decisions\n- Raise word target to 1,000 words for future drafts.\n- Preserve the head baker's long sentence only in her interview.\n- Use question-form headlines where feasible.\n\n## Next Steps\n- Expand drafts toward the 1,000-word target.\n- Continue drafting/editing blog posts, newsletter, press releases, product descriptions, and release notes.\n- Possibly select images from market_hall/ and team/ folders for pieces.","time":"2026-10-30T19:04:30.722Z"}
+{"uid":"u0227","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:05:03.528Z"}
+{"uid":"u0228","annotator":"Azouz","label":"stale","quote":"","time":"2026-10-30T19:08:31.329Z"}
+{"uid":"u0229","annotator":"Azouz","label":"hardened","quote":"","time":"2026-10-30T19:08:48.626Z"}
+{"uid":"u0230","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:11:01.721Z"}
+{"uid":"u0231","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:13:56.107Z"}
+{"uid":"u0232","annotator":"Azouz","label":"promoted","quote":"","time":"2026-10-30T19:14:17.232Z"}
+{"uid":"u0233","annotator":"Azouz","label":"hardened","quote":"","time":"2026-10-30T19:14:34.896Z"}
+{"uid":"u0234","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:14:53.667Z"}
+{"uid":"u0235","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:20:29.514Z"}
+{"uid":"u0236","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:21:15.359Z"}
+{"uid":"u0237","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:21:31.708Z"}
+{"uid":"u0238","annotator":"Azouz","label":"promoted","quote":"","time":"2026-10-30T19:21:48.751Z"}
+{"uid":"u0239","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:22:26.870Z"}
+{"uid":"u0240","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:22:48.045Z"}
+{"uid":"u0241","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:23:24.467Z"}
+{"uid":"u0242","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:23:44.416Z"}
+{"uid":"u0243","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:24:30.116Z"}
+{"uid":"u0244","annotator":"Azouz","label":"request_promoted","quote":"","time":"2026-10-30T19:25:40.844Z"}
+{"uid":"u0245","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:25:54.483Z"}
+{"uid":"u0246","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:26:10.010Z"}
+{"uid":"u0247","annotator":"Azouz","label":"request_promoted","quote":"","time":"2026-10-30T19:26:26.521Z"}
+{"uid":"u0248","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:26:44.192Z"}
+{"uid":"u0249","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:27:10.428Z"}
+{"uid":"u0250","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:27:35.821Z"}
+{"uid":"u0251","annotator":"Azouz","label":"hardened","quote":"","time":"2026-10-30T19:27:53.685Z"}
+{"uid":"u0252","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:28:11.402Z"}
+{"uid":"u0253","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:28:55.428Z"}
+{"uid":"u0254","annotator":"Azouz","label":"promoted","quote":"","time":"2026-10-30T19:29:25.994Z"}
+{"uid":"u0255","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:29:56.058Z"}
+{"uid":"u0256","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:30:13.269Z"}
+{"uid":"u0257","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:30:33.243Z"}
+{"uid":"u0258","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:30:52.562Z"}
+{"uid":"u0259","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:32:14.559Z"}
+{"uid":"u0260","annotator":"Azouz","label":"promoted","quote":"","time":"2026-10-30T19:33:00.686Z"}
+{"uid":"u0261","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:33:21.082Z"}
+{"uid":"u0262","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:33:52.158Z"}
+{"uid":"u0263","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:34:06.974Z"}
+{"uid":"u0264","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:34:32.546Z"}
+{"uid":"u0265","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:35:07.242Z"}
+{"uid":"u0266","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:35:32.199Z"}
+{"uid":"u0267","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:36:08.873Z"}
+{"uid":"u0268","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:36:37.884Z"}
+{"uid":"u0269","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:37:05.552Z"}
+{"uid":"u0270","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:37:26.324Z"}
+{"uid":"u0271","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:37:50.355Z"}
+{"uid":"u0272","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:38:11.698Z"}
+{"uid":"u0273","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:38:26.527Z"}
+{"uid":"u0274","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:38:44.321Z"}
+{"uid":"u0275","annotator":"Azouz","label":"promoted","quote":"","time":"2026-10-30T19:39:09.892Z"}
+{"uid":"u0276","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:39:24.733Z"}
+{"uid":"u0277","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:39:50.872Z"}
+{"uid":"u0278","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:40:08.375Z"}
+{"uid":"u0279","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:40:26.278Z"}
+{"uid":"u0280","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:40:44.550Z"}
+{"uid":"u0281","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:41:00.320Z"}
+{"uid":"u0282","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:41:12.888Z"}
+{"uid":"u0283","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:41:36.759Z"}
+{"uid":"u0284","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:41:53.943Z"}
+{"uid":"u0285","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:42:05.534Z"}
+{"uid":"u0286","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:42:23.093Z"}
+{"uid":"u0287","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:42:37.510Z"}
+{"uid":"u0288","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:43:15.234Z"}
+{"uid":"u0289","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:43:29.198Z"}
+{"uid":"u0290","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:43:44.699Z"}
+{"uid":"u0291","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:43:55.852Z"}
+{"uid":"u0292","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:44:06.336Z"}
+{"uid":"u0293","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:44:26.790Z"}
+{"uid":"u0294","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:44:44.668Z"}
+{"uid":"u0295","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:45:00.463Z"}
+{"uid":"u0296","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:45:16.423Z"}
+{"uid":"u0297","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:45:27.184Z"}
+{"uid":"u0298","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:45:41.757Z"}
+{"uid":"u0299","annotator":"Azouz","label":"correct","quote":"","time":"2026-10-30T19:45:56.407Z"}
